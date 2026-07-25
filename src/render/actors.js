@@ -1,0 +1,775 @@
+/**
+ * NEON GRID — actor models.
+ *
+ * Every model is generated in code: Pac-Man is two hinged hemispheres so his
+ * mouth is a real 3D wedge, the ghosts are a dome plus an animated wavy skirt
+ * with tracking eyes, the pellets are one instanced mesh with per-dot pop
+ * animation, and the eight fruits are little low-poly sculptures.
+ */
+
+import * as THREE from 'three';
+import { DIR_YAW, PALETTE, worldX, worldZ } from './palette.js';
+import { GHOST_META, GHOST_ORDER } from '../core/ghost.js';
+import { DIRECTIONS } from '../core/maze.js';
+
+/* --------------------------------------------------------------- shared utils */
+
+const canvasCache = new Map();
+
+function radialTexture(key, inner, outer, power = 2) {
+  if (canvasCache.has(key)) return canvasCache.get(key);
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  for (let i = 0; i <= 8; i++) {
+    const t = i / 8;
+    const a = Math.pow(1 - t, power);
+    grad.addColorStop(t, `rgba(${inner[0]}, ${inner[1]}, ${inner[2]}, ${a})`);
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  canvasCache.set(key, tex);
+  void outer;
+  return tex;
+}
+
+function glowSprite(colour, scale, opacity = 0.55) {
+  const c = new THREE.Color(colour);
+  const tex = radialTexture(
+    `glow-${colour}`,
+    [Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)],
+    null,
+    2.2
+  );
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    transparent: true,
+    opacity,
+    toneMapped: false,
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.setScalar(scale);
+  return sprite;
+}
+
+/** Flat additive light pool laid on the floor beneath an actor. */
+function lightPool(colour, size, opacity = 0.5) {
+  const c = new THREE.Color(colour);
+  const tex = radialTexture(
+    `pool-${colour}`,
+    [Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)],
+    null,
+    2.6
+  );
+  const geo = new THREE.PlaneGeometry(size, size);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    depthWrite: false,
+    opacity,
+    toneMapped: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = 0.012;
+  mesh.renderOrder = 4;
+  return mesh;
+}
+
+/* --------------------------------------------------------------------- Pac-Man */
+
+const PAC_R = 0.44;
+const PAC_Y = 0.46;
+
+export function createPacman(quality) {
+  const group = new THREE.Group();
+
+  const bodyMat = new THREE.MeshPhysicalMaterial({
+    color: PALETTE.pac,
+    emissive: new THREE.Color(PALETTE.pacDeep),
+    emissiveIntensity: 0.95,
+    metalness: 0.22,
+    roughness: 0.24,
+    clearcoat: 1,
+    clearcoatRoughness: 0.08,
+    envMapIntensity: 1.1,
+  });
+  const mouthMat = new THREE.MeshStandardMaterial({
+    color: PALETTE.pacMouth,
+    emissive: new THREE.Color(0x662200),
+    emissiveIntensity: 0.5,
+    roughness: 0.6,
+    side: THREE.DoubleSide,
+  });
+
+  const makeJaw = (upper) => {
+    const jaw = new THREE.Group();
+    const dome = new THREE.SphereGeometry(
+      PAC_R,
+      quality.pacSegments,
+      Math.max(10, quality.pacSegments / 2),
+      0,
+      Math.PI * 2,
+      upper ? 0 : Math.PI / 2,
+      Math.PI / 2
+    );
+    const shell = new THREE.Mesh(dome, bodyMat);
+    shell.castShadow = quality.shadows;
+    jaw.add(shell);
+
+    const disc = new THREE.CircleGeometry(PAC_R, quality.pacSegments);
+    disc.rotateX(upper ? Math.PI / 2 : -Math.PI / 2);
+    jaw.add(new THREE.Mesh(disc, mouthMat));
+    return jaw;
+  };
+
+  const upper = makeJaw(true);
+  const lower = makeJaw(false);
+  group.add(upper, lower);
+
+  const halo = glowSprite(0xfff0a0, 3.6, 0.6);
+  group.add(halo);
+
+  const pool = lightPool(PALETTE.pac, 3.8, 0.62);
+
+  // Lights are added conditionally: an unused light still costs a uniform slot.
+  let light = null;
+  if (quality.actorLights) {
+    light = new THREE.PointLight(0xffd54a, 2.6, 6.5, 1.8);
+    light.position.y = 0.2;
+    group.add(light);
+  }
+
+  const root = new THREE.Group();
+  root.add(group);
+
+  return {
+    root,
+    pool,
+    /**
+     * @param {object} pac   game pacman actor
+     * @param {number} time
+     * @param {number} death 0..1 death animation progress
+     */
+    update(pac, time, death) {
+      const wx = worldX(pac.x);
+      const wz = worldZ(pac.y);
+      root.position.set(wx, PAC_Y, wz);
+      pool.position.set(wx, 0.012, wz);
+
+      group.rotation.y = DIR_YAW[pac.dir] ?? 0;
+
+      if (death > 0) {
+        // The classic vanishing act: mouth opens all the way round, then gone.
+        const open = Math.min(1, death * 1.35);
+        const half = open * Math.PI;
+        upper.rotation.z = half;
+        lower.rotation.z = -half;
+        const shrink = Math.max(0, 1 - Math.max(0, death - 0.72) / 0.28);
+        group.scale.setScalar(shrink);
+        group.rotation.y += death * 6.5;
+        halo.material.opacity = 0.42 * shrink;
+        pool.material.opacity = 0.5 * shrink;
+        if (light) light.intensity = 2.6 * shrink;
+        return;
+      }
+
+      group.scale.setScalar(1);
+      const chomp = Math.abs(Math.sin(pac.mouth * Math.PI));
+      const half = 0.06 + chomp * 0.62;
+      upper.rotation.z = half;
+      lower.rotation.z = -half;
+
+      const bob = Math.sin(time * 9) * 0.012;
+      root.position.y = PAC_Y + bob;
+      halo.material.opacity = 0.5 + 0.14 * Math.sin(time * 6);
+      pool.material.opacity = 0.5 + 0.14 * Math.sin(time * 6);
+      if (light) light.intensity = 2.4 + 0.5 * Math.sin(time * 7);
+    },
+  };
+}
+
+/* ---------------------------------------------------------------------- ghosts */
+
+const GHOST_R = 0.41;
+const GHOST_Y = 0.44;
+const SKIRT_SEGMENTS = 40;
+const SKIRT_LOBES = 5;
+
+function buildSkirt(radius, height) {
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+  const rings = 2;
+
+  for (let r = 0; r < rings; r++) {
+    for (let i = 0; i <= SKIRT_SEGMENTS; i++) {
+      const a = (i / SKIRT_SEGMENTS) * Math.PI * 2;
+      const x = Math.cos(a) * radius;
+      const z = Math.sin(a) * radius;
+      positions.push(x, r === 0 ? 0 : -height, z);
+      normals.push(Math.cos(a), 0, Math.sin(a));
+      uvs.push(i / SKIRT_SEGMENTS, r);
+    }
+  }
+  const stride = SKIRT_SEGMENTS + 1;
+  for (let i = 0; i < SKIRT_SEGMENTS; i++) {
+    const a = i;
+    const b = i + 1;
+    const c = stride + i;
+    const d = stride + i + 1;
+    indices.push(a, c, b, b, c, d);
+  }
+
+  // Flat cap so the ghost is not see-through from below (it shows in the mirror).
+  const capStart = positions.length / 3;
+  positions.push(0, -height * 0.6, 0);
+  normals.push(0, -1, 0);
+  uvs.push(0.5, 0.5);
+  for (let i = 0; i < SKIRT_SEGMENTS; i++) {
+    indices.push(capStart, stride + i + 1, stride + i);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.userData.bottomStart = stride;
+  geo.userData.bottomCount = stride;
+  geo.userData.baseHeight = height;
+  return geo;
+}
+
+function zigzagTexture() {
+  if (canvasCache.has('zigzag')) return canvasCache.get('zigzag');
+  const w = 128;
+  const h = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 9;
+  ctx.lineJoin = 'miter';
+  ctx.beginPath();
+  const steps = 6;
+  for (let i = 0; i <= steps; i++) {
+    const x = (i / steps) * w;
+    const y = i % 2 === 0 ? h * 0.66 : h * 0.3;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  canvasCache.set('zigzag', tex);
+  return tex;
+}
+
+export function createGhost(id, quality) {
+  const meta = GHOST_META[id];
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+
+  const bodyMat = new THREE.MeshPhysicalMaterial({
+    color: meta.colour,
+    emissive: new THREE.Color(meta.colour),
+    emissiveIntensity: 0.75,
+    metalness: 0.15,
+    roughness: 0.3,
+    clearcoat: 1,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 0.9,
+  });
+
+  const dome = new THREE.SphereGeometry(
+    GHOST_R,
+    quality.ghostSegments,
+    Math.max(10, quality.ghostSegments / 2),
+    0,
+    Math.PI * 2,
+    0,
+    Math.PI / 2
+  );
+  const domeMesh = new THREE.Mesh(dome, bodyMat);
+  domeMesh.castShadow = quality.shadows;
+  body.add(domeMesh);
+
+  const skirtGeo = buildSkirt(GHOST_R, 0.42);
+  const skirtMesh = new THREE.Mesh(skirtGeo, bodyMat);
+  skirtMesh.castShadow = quality.shadows;
+  body.add(skirtMesh);
+
+  // Neon aura shell.
+  const auraMat = new THREE.MeshBasicMaterial({
+    color: meta.glow,
+    transparent: true,
+    opacity: 0.16,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.BackSide,
+    toneMapped: false,
+  });
+  const aura = new THREE.Mesh(new THREE.SphereGeometry(GHOST_R * 1.32, 20, 14), auraMat);
+  aura.position.y = -0.08;
+  body.add(aura);
+
+  // Eyes.
+  const eyes = new THREE.Group();
+  const whiteMat = new THREE.MeshStandardMaterial({
+    color: PALETTE.ghostEyeWhite,
+    emissive: new THREE.Color(0x8899cc),
+    emissiveIntensity: 0.35,
+    roughness: 0.25,
+  });
+  const pupilMat = new THREE.MeshStandardMaterial({
+    color: PALETTE.ghostPupil,
+    emissive: new THREE.Color(0x2222aa),
+    emissiveIntensity: 0.45,
+    roughness: 0.2,
+  });
+  const eyeGeo = new THREE.SphereGeometry(0.135, 18, 14);
+  const pupilGeo = new THREE.SphereGeometry(0.068, 14, 12);
+  const eyeParts = [];
+  for (const side of [-1, 1]) {
+    const white = new THREE.Mesh(eyeGeo, whiteMat);
+    white.position.set(side * 0.155, 0.115, 0.255);
+    white.scale.set(1, 1.18, 0.8);
+    const pupil = new THREE.Mesh(pupilGeo, pupilMat);
+    pupil.position.set(side * 0.155, 0.115, 0.36);
+    eyes.add(white, pupil);
+    eyeParts.push({ white, pupil, side });
+  }
+  root.add(eyes);
+
+  // Frightened zigzag mouth.
+  const mouthMat = new THREE.MeshBasicMaterial({
+    map: zigzagTexture(),
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+  const mouth = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.2), mouthMat);
+  mouth.position.set(0, -0.09, GHOST_R * 0.94);
+  mouth.visible = false;
+  root.add(mouth);
+
+  const halo = glowSprite(meta.glow, 2.3, 0.3);
+  halo.position.y = -0.05;
+  root.add(halo);
+
+  const pool = lightPool(meta.colour, 2.6, 0.4);
+
+  let light = null;
+  if (quality.ghostLights) {
+    light = new THREE.PointLight(meta.colour, 1.7, 5.2, 2);
+    light.position.y = 0.1;
+    root.add(light);
+  }
+
+  const skirtPos = skirtGeo.attributes.position;
+  const baseHeight = skirtGeo.userData.baseHeight;
+  const bottomStart = skirtGeo.userData.bottomStart;
+  const bottomCount = skirtGeo.userData.bottomCount;
+
+  const frightColour = new THREE.Color(PALETTE.frightened);
+  const flashColour = new THREE.Color(PALETTE.frightenedFlash);
+  const normalColour = new THREE.Color(meta.colour);
+
+  return {
+    root,
+    pool,
+    update(g, time, frightRatio) {
+      const wx = worldX(g.x);
+      const wz = worldZ(g.y);
+      root.position.set(wx, GHOST_Y, wz);
+      pool.position.set(wx, 0.012, wz);
+
+      const hidden = g.state === 'eaten';
+      body.visible = !hidden;
+      halo.visible = !hidden;
+      pool.visible = !hidden;
+
+      // Animated skirt hem.
+      const phase = time * 7 + (g.x + g.y) * 0.6;
+      for (let i = 0; i < bottomCount; i++) {
+        const a = (i / SKIRT_SEGMENTS) * Math.PI * 2;
+        const wave = Math.abs(Math.sin(a * SKIRT_LOBES * 0.5 + phase)) * 0.11;
+        skirtPos.setY(bottomStart + i, -baseHeight + wave);
+      }
+      skirtPos.needsUpdate = true;
+
+      // Eyes track the direction of travel, in the projected top-down sense.
+      const d = DIRECTIONS[g.eyeDir ?? g.dir] ?? DIRECTIONS.left;
+      for (const part of eyeParts) {
+        part.pupil.position.x = part.side * 0.155 + d.x * 0.052;
+        part.pupil.position.y = 0.115 - d.y * 0.05;
+        part.pupil.position.z = 0.36 - Math.abs(d.y) * 0.02;
+      }
+
+      const bob = Math.sin(time * 5.5 + phase * 0.1) * 0.02;
+      root.position.y = GHOST_Y + bob;
+
+      if (g.frightened) {
+        // Flash white in the final second of the power pellet.
+        const flashing = frightRatio < 0.28 && Math.sin(time * 22) > 0;
+        bodyMat.color.copy(flashing ? flashColour : frightColour);
+        bodyMat.emissive.copy(flashing ? flashColour : frightColour);
+        bodyMat.emissiveIntensity = flashing ? 1.1 : 0.85;
+        auraMat.color.copy(flashing ? flashColour : frightColour);
+        mouth.visible = !hidden;
+        mouthMat.color.copy(flashing ? new THREE.Color(0x2b3cff) : flashColour);
+        for (const part of eyeParts) part.pupil.visible = false;
+        if (light) light.color.copy(flashing ? flashColour : frightColour);
+      } else {
+        bodyMat.color.copy(normalColour);
+        bodyMat.emissive.copy(normalColour);
+        bodyMat.emissiveIntensity = 0.7 + 0.12 * Math.sin(time * 4 + phase * 0.2);
+        auraMat.color.setHex(meta.glow);
+        mouth.visible = false;
+        for (const part of eyeParts) part.pupil.visible = true;
+        if (light) light.color.setHex(meta.colour);
+      }
+      if (light) light.intensity = hidden ? 0.5 : 1.5 + 0.35 * Math.sin(time * 5);
+    },
+  };
+}
+
+/* --------------------------------------------------------------------- pellets */
+
+export function createPellets(maze, quality) {
+  const list = maze.pelletsInitial.filter((p) => !p.energizer);
+  const geo = new THREE.SphereGeometry(0.082, quality.pelletSegments, quality.pelletSegments);
+  const mat = new THREE.MeshBasicMaterial({ color: PALETTE.pellet, toneMapped: false });
+  const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.frustumCulled = false;
+
+  const state = list.map((p) => ({ ...p, eaten: false, pop: 0 }));
+  const dummy = new THREE.Object3D();
+
+  const sync = (time) => {
+    for (let i = 0; i < state.length; i++) {
+      const s = state[i];
+      const gone = maze.pelletAt(s.x, s.y) === 0;
+      if (gone && !s.eaten) {
+        s.eaten = true;
+        s.pop = 1;
+      }
+      if (!gone && s.eaten) {
+        s.eaten = false;
+        s.pop = 0;
+      }
+
+      let scale;
+      if (s.eaten) {
+        s.pop = Math.max(0, s.pop - 0.075);
+        scale = s.pop > 0 ? (1 + (1 - s.pop) * 1.8) * s.pop : 0;
+      } else {
+        scale = 0.86 + 0.14 * Math.sin(time * 4.5 + (s.x + s.y) * 0.9);
+      }
+
+      dummy.position.set(worldX(s.x), 0.22 + (s.eaten ? (1 - s.pop) * 0.4 : 0), worldZ(s.y));
+      dummy.scale.setScalar(scale);
+      dummy.rotation.set(0, time * 0.6 + s.x, 0);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  };
+
+  const reset = () => {
+    for (const s of state) {
+      s.eaten = false;
+      s.pop = 0;
+    }
+  };
+
+  return { mesh, sync, reset };
+}
+
+/* ------------------------------------------------------------------ energizers */
+
+export function createEnergizers(maze, quality) {
+  const group = new THREE.Group();
+  const list = maze.pelletsInitial.filter((p) => p.energizer);
+  const mat = new THREE.MeshBasicMaterial({ color: PALETTE.energizer, toneMapped: false });
+  const items = list.map((p) => {
+    const holder = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 22, 18), mat);
+    holder.add(core);
+    const halo = glowSprite(0xfff0a0, 2.2, 0.7);
+    holder.add(halo);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.3, 0.022, 8, 28),
+      new THREE.MeshBasicMaterial({
+        color: 0xffe9a0,
+        toneMapped: false,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    ring.rotation.x = Math.PI / 2;
+    holder.add(ring);
+    holder.position.set(worldX(p.x), 0.3, worldZ(p.y));
+    group.add(holder);
+
+    let light = null;
+    if (quality.energizerLights) {
+      light = new THREE.PointLight(0xfff0b0, 2.2, 6, 2);
+      light.position.y = 0.1;
+      holder.add(light);
+    }
+    return { tile: p, holder, halo, ring, light, core };
+  });
+
+  return {
+    group,
+    sync(time) {
+      for (const it of items) {
+        const alive = maze.pelletAt(it.tile.x, it.tile.y) !== 0;
+        it.holder.visible = alive;
+        if (!alive) {
+          if (it.light) it.light.intensity = 0;
+          continue;
+        }
+        const pulse = 0.72 + 0.28 * Math.sin(time * 7 + it.tile.x);
+        it.core.scale.setScalar(0.82 + pulse * 0.3);
+        it.halo.scale.setScalar(1.9 + pulse * 1.5);
+        it.halo.material.opacity = 0.45 + pulse * 0.4;
+        it.ring.scale.setScalar(0.9 + pulse * 0.5);
+        it.ring.rotation.z = time * 1.4;
+        it.holder.position.y = 0.3 + Math.sin(time * 3 + it.tile.y) * 0.03;
+        if (it.light) it.light.intensity = 1.4 + pulse * 1.8;
+      }
+    },
+  };
+}
+
+/* ---------------------------------------------------------------------- fruits */
+
+function neon(colour, emissive = 0.7, rough = 0.3) {
+  return new THREE.MeshPhysicalMaterial({
+    color: colour,
+    emissive: new THREE.Color(colour),
+    emissiveIntensity: emissive,
+    metalness: 0.2,
+    roughness: rough,
+    clearcoat: 1,
+    clearcoatRoughness: 0.12,
+  });
+}
+
+const FRUIT_BUILDERS = {
+  cherry() {
+    const g = new THREE.Group();
+    const mat = neon(0xff2b52, 0.8);
+    for (const dx of [-0.13, 0.13]) {
+      const berry = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 16), mat);
+      berry.position.set(dx, -0.06, dx * 0.4);
+      g.add(berry);
+    }
+    const stemMat = neon(0x4dff8f, 0.55);
+    for (const dx of [-0.13, 0.13]) {
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.3, 6), stemMat);
+      stem.position.set(dx * 0.55, 0.16, dx * 0.2);
+      stem.rotation.z = -dx * 1.6;
+      g.add(stem);
+    }
+    return g;
+  },
+  strawberry() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.36, 20), neon(0xff2f6b, 0.8));
+    body.rotation.x = Math.PI;
+    body.position.y = -0.04;
+    g.add(body);
+    const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.09, 6), neon(0x5dff8a, 0.6));
+    leaf.position.y = 0.16;
+    g.add(leaf);
+    return g;
+  },
+  orange() {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.2, 22, 18), neon(0xffa229, 0.85)));
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 6), neon(0x4dff8f, 0.5));
+    stem.position.y = 0.22;
+    g.add(stem);
+    return g;
+  },
+  apple() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.2, 22, 18), neon(0xff3355, 0.85));
+    body.scale.set(1, 0.94, 1);
+    g.add(body);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.14, 6), neon(0x8b5a2b, 0.4));
+    stem.position.y = 0.22;
+    g.add(stem);
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), neon(0x5dff8a, 0.6));
+    leaf.scale.set(1.6, 0.3, 0.8);
+    leaf.position.set(0.08, 0.25, 0);
+    g.add(leaf);
+    return g;
+  },
+  melon() {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.21, 24, 18), neon(0x6dff5c, 0.7)));
+    const stripeMat = neon(0x0f6b2a, 0.4);
+    for (let i = 0; i < 5; i++) {
+      const stripe = new THREE.Mesh(new THREE.TorusGeometry(0.212, 0.012, 6, 24, Math.PI), stripeMat);
+      stripe.rotation.y = (i / 5) * Math.PI;
+      stripe.rotation.x = Math.PI / 2;
+      g.add(stripe);
+    }
+    return g;
+  },
+  galaxian() {
+    const g = new THREE.Group();
+    const hull = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.34, 4), neon(0x4dd8ff, 0.9));
+    hull.rotation.y = Math.PI / 4;
+    g.add(hull);
+    const wingMat = neon(0xffe14d, 0.9);
+    for (const s of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.03, 0.1), wingMat);
+      wing.position.set(s * 0.16, -0.08, 0);
+      wing.rotation.z = s * 0.5;
+      g.add(wing);
+    }
+    return g;
+  },
+  bell() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 22, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+      neon(0xffd24d, 0.85)
+    );
+    g.add(body);
+    const skirt = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.2, 0.22, 0.12, 22, 1, true),
+      neon(0xffd24d, 0.85)
+    );
+    skirt.position.y = -0.06;
+    g.add(skirt);
+    const clapper = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 10), neon(0xff5cc8, 0.9));
+    clapper.position.y = -0.16;
+    g.add(clapper);
+    return g;
+  },
+  key() {
+    const g = new THREE.Group();
+    const mat = neon(0x8ce9ff, 0.9);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.032, 10, 22), mat);
+    ring.position.y = 0.14;
+    g.add(ring);
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.3, 10), mat);
+    shaft.position.y = -0.08;
+    g.add(shaft);
+    for (const dy of [-0.14, -0.2]) {
+      const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.035, 0.035), mat);
+      tooth.position.set(0.06, dy, 0);
+      g.add(tooth);
+    }
+    return g;
+  },
+};
+
+export function createFruitFactory() {
+  const cache = new Map();
+  return function getFruit(id) {
+    if (!cache.has(id)) {
+      const builder = FRUIT_BUILDERS[id] ?? FRUIT_BUILDERS.cherry;
+      const model = builder();
+      const halo = glowSprite(0xffffff, 2.0, 0.35);
+      model.add(halo);
+      cache.set(id, model);
+    }
+    return cache.get(id);
+  };
+}
+
+/* ----------------------------------------------------------------- score popups */
+
+const popupCache = new Map();
+
+function popupTexture(text) {
+  if (popupCache.has(text)) return popupCache.get(text);
+  const w = 256;
+  const h = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = 'bold 74px "Trebuchet MS", "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#00e9ff';
+  ctx.shadowBlur = 26;
+  ctx.fillStyle = '#bff6ff';
+  ctx.fillText(text, w / 2, h / 2);
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, w / 2, h / 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  popupCache.set(text, tex);
+  return tex;
+}
+
+export function createPopupPool(size = 8) {
+  const group = new THREE.Group();
+  const sprites = [];
+  for (let i = 0; i < size; i++) {
+    const mat = new THREE.SpriteMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      toneMapped: false,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.visible = false;
+    sprite.scale.set(1.7, 0.85, 1);
+    group.add(sprite);
+    sprites.push(sprite);
+  }
+
+  return {
+    group,
+    sync(popups) {
+      for (let i = 0; i < sprites.length; i++) {
+        const s = sprites[i];
+        const p = popups[i];
+        if (!p) {
+          s.visible = false;
+          continue;
+        }
+        const t = p.age / p.life;
+        s.visible = true;
+        const tex = popupTexture(String(p.points));
+        if (s.material.map !== tex) {
+          s.material.map = tex;
+          s.material.needsUpdate = true;
+        }
+        s.position.set(worldX(p.x), 0.7 + t * 1.5, worldZ(p.y));
+        s.material.opacity = 1 - t * t;
+        s.scale.set(1.7 + t * 0.6, 0.85 + t * 0.3, 1);
+      }
+    },
+  };
+}
+
+export { GHOST_ORDER };

@@ -1,0 +1,21 @@
+{
+  "name": "neon-pacman-3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "NEON GRID — a synthwave 3D Pac-Man built with Three.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "test": "node tests/logic.test.mjs",
+    "test:e2e": "node tests/e2e.mjs"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11",
+    "playwright": "^1.49.1"
+  },
+  "dependencies": {
+    "three": "^0.171.0"
+  }
+}

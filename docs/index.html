@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>NEON GRID — Synthwave 3D</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0a0118" />
+    <meta name="description" content="A synthwave 3D maze chase built with Three.js. Playable in the browser, on desktop and iPhone." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Neon Grid" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icon-180.png" />
+    <script type="module" crossorigin src="./assets/index-DrgHUHPS.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-FXWM4Btj.css">
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <div id="loader">
+      <div class="loader-inner">
+        <div class="loader-logo">NEON GRID</div>
+        <div class="loader-bar"><span></span></div>
+        <div class="loader-text">BOOTING THE GRID…</div>
+      </div>
+    </div>
+
+    <div id="ui">
+      <!-- top status bar -->
+      <header class="bar">
+        <div class="stat">
+          <label>SCORE</label>
+          <div id="score" class="value">000000</div>
+        </div>
+        <div class="stat centre-stat">
+          <label>HIGH</label>
+          <div id="highscore" class="value alt">000000</div>
+        </div>
+        <div class="stat right">
+          <label>GRID</label>
+          <div id="level" class="value alt">01</div>
+        </div>
+      </header>
+
+      <!-- ghost telemetry -->
+      <aside id="ghost-list" class="ghosts"></aside>
+
+      <!-- power pellet timer -->
+      <div id="fright-bar" class="fright">
+        <span id="fright-fill"></span>
+      </div>
+
+      <!-- centre messages -->
+      <div id="centre" class="centre" style="display: none">
+        <h2 id="centre-title"></h2>
+        <p id="centre-sub"></p>
+      </div>
+
+      <!-- title / attract screen -->
+      <div id="title" class="title visible">
+        <div class="title-glow">
+          <h1>NEON<span>GRID</span></h1>
+          <p class="tagline">A SYNTHWAVE MAZE CHASE · 1984 FOREVER</p>
+        </div>
+        <button id="btn-start" class="cta">INSERT COIN</button>
+        <div class="hints">
+          <span><b>WASD</b> / <b>ARROWS</b> or <b>SWIPE</b> to move</span>
+          <span><b>P</b> pause · <b>C</b> camera · <b>M</b> sound · <b>F</b> fullscreen</span>
+        </div>
+        <div class="legend">
+          <span class="lg lg-blaze">BLAZE hunts you head-on</span>
+          <span class="lg lg-violet">VIOLET cuts you off</span>
+          <span class="lg lg-cyan">CYAN flanks</span>
+          <span class="lg lg-amber">AMBER is unpredictable</span>
+        </div>
+      </div>
+
+      <!-- bottom bar -->
+      <footer class="bar bottom">
+        <div class="stat">
+          <label>LIVES</label>
+          <div id="lives" class="lives"></div>
+        </div>
+        <div class="stat right">
+          <label>COLLECTED</label>
+          <div id="fruits" class="fruits"></div>
+        </div>
+      </footer>
+
+      <div id="toast" class="toast"></div>
+      <div id="stats" class="perf"></div>
+
+      <!-- touch controls -->
+      <div id="pad" class="pad">
+        <button data-dir="up" aria-label="up">▲</button>
+        <button data-dir="left" aria-label="left">◀</button>
+        <button data-dir="right" aria-label="right">▶</button>
+        <button data-dir="down" aria-label="down">▼</button>
+      </div>
+
+      <div class="buttons">
+        <button id="btn-pause" title="Pause">❚❚</button>
+        <button id="btn-camera" title="Camera">◎</button>
+        <button id="btn-sound" title="Sound">♪</button>
+        <button id="btn-fullscreen" title="Fullscreen">⛶</button>
+      </div>
+    </div>
+
+  </body>
+</html>
