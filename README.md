@@ -56,6 +56,8 @@ setting sun dead centre behind the ridgeline.
 
 ![Sunset](media/cinematic.png)
 
+![Power pellet](media/frightened.png)
+
 ## Audio
 
 Entirely synthesised with the Web Audio API — no samples. A small FX bank (waka, power
