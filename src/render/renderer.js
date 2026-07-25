@@ -180,8 +180,18 @@ export function createRenderer(canvas, game, tierName) {
   };
 
   function recomputeFit() {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    const aspect = window.innerWidth / window.innerHeight;
+    camera.aspect = aspect;
     camera.updateProjectionMatrix();
+
+    // The maze projects to roughly 28 x 31*sin(tilt) on screen, so a tall
+    // portrait phone is always width-bound. Steepening the tilt stretches the
+    // projection vertically and recovers a good chunk of that wasted height
+    // (about 40% -> 51% of the viewport on a 393x852 screen).
+    const portrait = THREE.MathUtils.clamp((0.85 - aspect) / 0.45, 0, 1);
+    cam.tilt = THREE.MathUtils.degToRad(52 + portrait * 13);
+    cam.margin = 1.04 - portrait * 0.02;
+
     cam.distance = fitDistance(camera, cam.tilt, cam.margin);
   }
   recomputeFit();

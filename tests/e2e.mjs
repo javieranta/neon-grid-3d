@@ -20,6 +20,10 @@ const ART = join(ROOT, 'tests', 'artifacts');
 let failures = 0;
 let checks = 0;
 
+function eqLabel(actual, expected, label) {
+  ok(actual === expected, label, `expected ${expected}, got ${actual}`);
+}
+
 function ok(cond, label, detail = '') {
   checks++;
   const mark = cond ? '  ok  ' : '  FAIL';
@@ -343,7 +347,16 @@ async function run() {
       if (m.type() === 'error') errors.push(m.text());
     });
 
+    // Auto-detection check first, on an unpinned load.
     await page.goto(url, { waitUntil: 'load' });
+    await page.waitForFunction(() => !!window.__neon, null, { timeout: 25000 });
+    await page.waitForTimeout(1200);
+    const autoTier = await page.evaluate(() => window.__neon.stats().tier);
+    ok(['medium', 'low', 'potato'].includes(autoTier), 'mobile auto-detects a mobile tier', autoTier);
+
+    // Everything below pins the tier so the pixel assertions are deterministic;
+    // headless software rasterisation makes the watchdog's choice vary per run.
+    await page.goto(`${url}?tier=low`, { waitUntil: 'load' });
     await page.waitForFunction(() => !!window.__neon, null, { timeout: 25000 });
     await page.waitForTimeout(2200);
 
@@ -354,7 +367,7 @@ async function run() {
     ok(padVisible, 'touch thumb pad is visible on mobile');
 
     const tier = await page.evaluate(() => window.__neon.stats().tier);
-    ok(['medium', 'low', 'potato'].includes(tier), 'mobile picked a mobile tier', tier);
+    eqLabel(tier, 'low', 'pinned tier honoured');
 
     const noScroll = await page.evaluate(() => {
       const body = getComputedStyle(document.body);
@@ -425,7 +438,7 @@ async function run() {
       hasTouch: true,
     });
     const page = await ctx.newPage();
-    await page.goto(url, { waitUntil: 'load' });
+    await page.goto(`${url}?tier=low`, { waitUntil: 'load' });
     await page.waitForFunction(() => !!window.__neon, null, { timeout: 25000 });
     await page.evaluate(() => window.__neon.start());
     await page.waitForTimeout(2600);

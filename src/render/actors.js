@@ -139,6 +139,25 @@ export function createPacman(quality) {
 
   const pool = lightPool(PALETTE.pac, 3.8, 0.62);
 
+  // Locator ring. At a full-maze framing on a phone Pac-Man is only a few
+  // pixels across, so a thin pulsing circle on the floor makes him findable at
+  // a glance without adding an out-of-place HUD marker.
+  const ringGeo = new THREE.RingGeometry(0.52, 0.6, 40);
+  ringGeo.rotateX(-Math.PI / 2);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xfff3b0,
+    transparent: true,
+    opacity: 0.55,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.position.y = 0.02;
+  ring.renderOrder = 5;
+  pool.add(ring);
+
   // Lights are added conditionally: an unused light still costs a uniform slot.
   let light = null;
   if (quality.actorLights) {
@@ -178,6 +197,8 @@ export function createPacman(quality) {
         halo.material.opacity = 0.42 * shrink;
         pool.material.opacity = 0.5 * shrink;
         if (light) light.intensity = 2.6 * shrink;
+        ringMat.opacity = 0.55 * shrink;
+        ring.scale.setScalar(1 + (1 - shrink) * 1.6);
         return;
       }
 
@@ -192,6 +213,11 @@ export function createPacman(quality) {
       halo.material.opacity = 0.5 + 0.14 * Math.sin(time * 6);
       pool.material.opacity = 0.5 + 0.14 * Math.sin(time * 6);
       if (light) light.intensity = 2.4 + 0.5 * Math.sin(time * 7);
+
+      const beat = 0.5 + 0.5 * Math.sin(time * 3.1);
+      ring.scale.setScalar(0.9 + beat * 0.22);
+      ringMat.opacity = 0.32 + beat * 0.3;
+      ring.rotation.y = time * 0.8;
     },
   };
 }
