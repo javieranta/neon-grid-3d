@@ -603,7 +603,7 @@ export function createPellets(maze, quality) {
       color: PALETTE.pellet,
       toneMapped: false,
       transparent: true,
-      opacity: 0.4,
+      opacity: 0.55,
       depthWrite: false,
       side: THREE.DoubleSide,
     }),

@@ -673,21 +673,24 @@ export function createEnvironment(scene, renderer, quality, camera) {
   // the hot spot that kept appearing mid-board; the neon environment map now does
   // all the reflecting, so this contributes almost nothing but that artefact.
   const sun = new THREE.DirectionalLight(0xff9ad8, 0.08);
-  sun.position.copy(SUN_DIR).multiplyScalar(60);
-  sun.position.y = Math.abs(sun.position.y) + 34;
+  // Deliberately NOT aligned with the visible sun. That sits near the horizon, so
+  // shadows cast from it are long faint smears that ground nothing; from overhead
+  // the characters get short contact shadows instead. The light contributes almost
+  // no illumination, so the mismatch never reads.
+  sun.position.set(7, 46, 14);
   sun.castShadow = quality.shadows;
   if (quality.shadows) {
     sun.shadow.mapSize.set(quality.shadowMap, quality.shadowMap);
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 140;
-    const s = 22;
+    const s = 20;
     sun.shadow.camera.left = -s;
     sun.shadow.camera.right = s;
     sun.shadow.camera.top = s;
     sun.shadow.camera.bottom = -s;
     sun.shadow.bias = -0.0009;
     sun.shadow.normalBias = 0.03;
-    sun.shadow.radius = 3;
+    sun.shadow.radius = 2;
   }
   scene.add(sun);
   scene.add(sun.target);

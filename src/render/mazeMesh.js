@@ -606,7 +606,7 @@ export function buildMaze(maze, quality) {
       edgeColour: { value: new THREE.Color(0x1a0536) },
       gridColour: { value: new THREE.Color(0x2a0d52) },
       span: { value: glow.span },
-      opacity: { value: quality.reflections ? 0.4 : 0.985 },
+      opacity: { value: quality.reflections ? 0.3 : 0.985 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -696,7 +696,9 @@ export function buildMaze(maze, quality) {
   if (quality.shadows) {
     const catcherGeo = new THREE.PlaneGeometry(glow.span, glow.span);
     catcherGeo.rotateX(-Math.PI / 2);
-    const catcher = new THREE.Mesh(catcherGeo, new THREE.ShadowMaterial({ opacity: 0.42 }));
+    // ShadowMaterial keys off the shadow map, not the light's intensity, so a
+    // near-dark shadow light still produces a readable contact shadow here.
+    const catcher = new THREE.Mesh(catcherGeo, new THREE.ShadowMaterial({ opacity: 0.62 }));
     catcher.position.y = 0.002;
     catcher.receiveShadow = true;
     catcher.renderOrder = 2;
@@ -715,7 +717,7 @@ export function buildMaze(maze, quality) {
         roughness: 0.34,
         envMapIntensity: 0.8,
         transparent: true,
-        opacity: 0.8,
+        opacity: 0.88,
         side: THREE.DoubleSide,
       })
     );
@@ -798,7 +800,7 @@ export function buildMaze(maze, quality) {
      */
     setReflections(on) {
       if (mirror) mirror.visible = on;
-      baseMat.uniforms.opacity.value = on ? 0.4 : 0.985;
+      baseMat.uniforms.opacity.value = on ? 0.3 : 0.985;
     },
     update(time, frightened) {
       // Subtle breathing on the floor-level line only; touching the main tube
