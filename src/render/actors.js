@@ -211,6 +211,12 @@ export function createPacman(quality) {
     setCloseUp(close) {
       ring.visible = !close;
       lampScale = close ? 0.42 : 1;
+      // Same reasoning as the ghosts: a strong emissive is what makes him
+      // readable from across the board, but up close it flattens him into a
+      // lantern. The environment reflection and clearcoat carry him instead.
+      // 0.22 was too far: it cost him the signature luminous yellow and left a
+      // dull brown ball. Half-strength keeps him bright without flattening him.
+      bodyMat.emissiveIntensity = close ? 0.45 : 0.8;
     },
     /**
      * @param {object} pac   game pacman actor

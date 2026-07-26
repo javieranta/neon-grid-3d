@@ -376,6 +376,7 @@ export function buildMaze(maze, quality) {
   const baseTubeGeos = [];
   const midTubeGeos = [];
   const stripGeos = [];
+  const pillarSpots = [];
   const glowLoops = [];
 
   for (const cells of comps) {
@@ -395,6 +396,30 @@ export function buildMaze(maze, quality) {
 
     const outerOriented = outerArea > 0 ? outer : [...outer].reverse();
     const holesOriented = holes.map((h) => orient(h, false));
+
+    // Pillars at the convex corners of this block. The loop is oriented CCW, so a
+    // left turn is a convex corner; the pillar is inset along the inward bisector
+    // so it stays within the block instead of narrowing a one-tile lane.
+    const corners = outerOriented.map(([cx, cy]) => new THREE.Vector2(sx(cx), sy(cy)));
+    for (let i = 0; i < corners.length; i++) {
+      const p0 = corners[(i - 1 + corners.length) % corners.length];
+      const p1 = corners[i];
+      const p2 = corners[(i + 1) % corners.length];
+      const a = p1.clone().sub(p0);
+      const b = p2.clone().sub(p1);
+      if (a.lengthSq() < 1e-6 || b.lengthSq() < 1e-6) continue;
+      a.normalize();
+      b.normalize();
+      if (a.x * b.y - a.y * b.x <= 0) continue; // concave: skip
+      // Interior lies to the left of travel for a CCW loop.
+      const inward = new THREE.Vector2(-a.y - b.y, a.x + b.x);
+      if (inward.lengthSq() < 1e-6) continue;
+      inward.normalize().multiplyScalar(0.34);
+      const at = p1.clone().add(inward);
+      // Space them out so they read as architecture, not a fence.
+      if (pillarSpots.some((q) => q.distanceToSquared(at) < 6.0)) continue;
+      pillarSpots.push(at);
+    }
 
     const shape = shapeFromLoops(outerOriented, holesOriented);
     const slab = new THREE.ExtrudeGeometry(shape, {
@@ -555,6 +580,56 @@ export function buildMaze(maze, quality) {
   const midMesh = midTubeGeo ? new THREE.Mesh(midTubeGeo, midMat) : null;
   if (midMesh) group.add(midMesh);
 
+  // ------------------------------------------------------------------ pillars
+  const pillarBodyGeos = [];
+  const pillarRingGeos = [];
+  // Deliberately taller than the wall. Flush with it they read as lumps on the
+  // corner; standing proud of the wall line they read as the columns the reference
+  // corridors are lined with, and they give the lifted camera vertical interest.
+  const PILLAR_H = WALL_HEIGHT * 2.0;
+  const RING_FRACTIONS = [0.94, 0.62];
+  for (const spot of pillarSpots) {
+    const body = new THREE.CylinderGeometry(0.26, 0.32, PILLAR_H, 18, 1, false);
+    body.translate(spot.x, PILLAR_H / 2, -spot.y);
+    pillarBodyGeos.push(body);
+    for (const frac of RING_FRACTIONS) {
+      const ring = new THREE.TorusGeometry(0.295, 0.036, 8, 22);
+      ring.rotateX(Math.PI / 2);
+      ring.translate(spot.x, PILLAR_H * frac, -spot.y);
+      pillarRingGeos.push(ring);
+    }
+    // A cap so the top is not an open tube from above.
+    const cap = new THREE.CylinderGeometry(0.27, 0.27, 0.05, 18, 1, false);
+    cap.translate(spot.x, PILLAR_H + 0.02, -spot.y);
+    pillarBodyGeos.push(cap);
+  }
+  const pillarBodyGeo = merge(pillarBodyGeos);
+  const pillarRingGeo = merge(pillarRingGeos);
+  const pillarBody = pillarBodyGeo
+    ? new THREE.Mesh(
+        pillarBodyGeo,
+        new THREE.MeshPhysicalMaterial({
+          color: 0x07050f,
+          metalness: 0.62,
+          roughness: 0.2,
+          clearcoat: 1,
+          clearcoatRoughness: 0.14,
+          envMapIntensity: 0.8,
+        })
+      )
+    : null;
+  const pillarRings = pillarRingGeo
+    ? new THREE.Mesh(
+        pillarRingGeo,
+        new THREE.MeshBasicMaterial({ color: PALETTE.neonCyan, toneMapped: false })
+      )
+    : null;
+  if (pillarBody) {
+    pillarBody.castShadow = quality.shadows;
+    group.add(pillarBody);
+  }
+  if (pillarRings) group.add(pillarRings);
+
   // No additive shells around the tubes: scaling a swept ring on one axis
   // stretches it into tall soft ghosts that wash the whole frame from a low
   // camera. Bloom supplies the halo, and it respects the geometry.
@@ -585,8 +660,9 @@ export function buildMaze(maze, quality) {
         [cyanMesh, 1],
         [magentaMesh, 1],
         ...(midMesh ? [[midMesh, 0.52]] : []),
+        ...(pillarRings ? [[pillarRings, 2.0]] : []),
       ],
-      strips: stripMesh,
+      scales: [stripMesh, pillarBody].filter(Boolean),
     },
   ];
 
@@ -758,7 +834,7 @@ export function buildMaze(maze, quality) {
       })
     );
     mirror.add(mSlab, mTube, mTube2, mBase);
-    stretchTargets.push({ slab: mSlab, lifts: [[mTube, 1], [mTube2, 1]], strips: null });
+    stretchTargets.push({ slab: mSlab, lifts: [[mTube, 1], [mTube2, 1]], scales: [] });
     // Transparent draw order is renderOrder first, so the reflection is
     // guaranteed to land underneath the semi-transparent floor.
     mirror.children.forEach((c) => (c.renderOrder = -2));
@@ -772,6 +848,7 @@ export function buildMaze(maze, quality) {
     mirror,
     gate,
     componentCount: comps.length,
+    pillarCount: pillarSpots.length,
     /**
      * Raises the walls without distorting their neon.
      *
@@ -787,10 +864,10 @@ export function buildMaze(maze, quality) {
       if (Math.abs(k - stretch) < 1e-4 && Math.abs(k - target) < 1e-4) return;
       stretch = k;
       const grow = (k - 1) * WALL_HEIGHT;
-      for (const { slab, lifts, strips } of stretchTargets) {
+      for (const { slab, lifts, scales } of stretchTargets) {
         slab.scale.y = k;
         for (const [mesh, frac] of lifts) mesh.position.y = grow * frac;
-        if (strips) strips.scale.y = k;
+        for (const mesh of scales) mesh.scale.y = k;
       }
     },
     /**
@@ -822,6 +899,8 @@ export function buildMaze(maze, quality) {
       cyanTubeGeo.dispose();
       if (stripGeo) stripGeo.dispose();
       if (midTubeGeo) midTubeGeo.dispose();
+      if (pillarBodyGeo) pillarBodyGeo.dispose();
+      if (pillarRingGeo) pillarRingGeo.dispose();
       magentaTubeGeo.dispose();
       baseTubeGeo.dispose();
       glow.texture.dispose();
