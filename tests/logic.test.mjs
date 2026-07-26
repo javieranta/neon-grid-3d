@@ -246,10 +246,10 @@ section('fruit lifecycle');
     }
     game.step(DT);
   }
-  eq(spawned, 1, 'a fruit appeared at 70 dots');
-  ok(game.dotsEaten >= 70, 'trigger fired on the dot counter', `${game.dotsEaten}`);
-  ok(game.fruit !== null, 'fruit is on the board');
-  eq(game.fruit.def.points, 100, 'level 1 fruit is a 100 point cherry');
+  eq(spawned, 1, 'a fruit appeared at the first trigger');
+  ok(game.dotsEaten >= 40, 'trigger fired on the dot counter', `${game.dotsEaten}`);
+  eq(game.fruits.length, 1, 'fruit is on the board');
+  eq(game.fruits[0].def.points, 100, 'level 1 fruit is a 100 point cherry');
 
   // Steer Pac-Man onto the fruit tile.
   const target = { x: 13, y: 17 };
@@ -286,12 +286,73 @@ section('fruit lifecycle');
         g.y = 14;
       }
     }
-    if (game.fruit) game.fruit.timer = 5; // keep it alive for the test
+    for (const fr of game.fruits) fr.timer = 5; // keep them alive for the test
     game.step(DT);
   }
   ok(eaten !== null, 'Pac-Man collected the fruit');
   if (eaten) eq(eaten.points, 100, 'cherry scored 100');
   ok(game.fruitHistory.length === 1, 'fruit recorded in the HUD history');
+}
+
+section('three fruits per level, coexisting');
+{
+  const { FRUIT_SPAWNS, FRUIT_TRIGGERS, FRUITS } = await import('../src/core/levels.js');
+  eq(FRUIT_TRIGGERS.length, 3, 'three fruit triggers');
+  eq(FRUIT_SPAWNS.length, 3, 'three fruit spawn points');
+
+  // Every spawn tile must be open floor with no pellet, or it is ambiguous to eat.
+  const m = createMaze();
+  for (const sp of FRUIT_SPAWNS) {
+    const tx = Math.round(sp.x);
+    const ty = Math.round(sp.y);
+    ok(m.walkable(tx, ty), `fruit spawn ${sp.x},${sp.y} is reachable floor`);
+    eq(m.pelletAt(tx, ty), 0, `fruit spawn ${sp.x},${sp.y} carries no pellet`);
+  }
+
+  // Drive a level far enough to fire all three triggers and check they coexist.
+  const game = createGame({ seed: 31 });
+  game.startGame();
+  game.setState(STATE.PLAYING);
+  const seen = [];
+  let maxOnBoard = 0;
+  game.on('fruitSpawn', (e) => seen.push(e.fruit.id));
+  for (let i = 0; i < 60 * 240 && seen.length < 3; i++) {
+    if (game.state === STATE.PLAYING) game.setDirection(botDirection(game));
+    for (const id of GHOST_ORDER) {
+      const g = game.ghosts[id];
+      if (g.state === 'hunting') {
+        g.state = 'house';
+        g.x = g.meta.homeX;
+        g.y = 14;
+      }
+    }
+    for (const fr of game.fruits) fr.timer = 60; // hold them so overlap is observable
+    game.step(DT);
+    maxOnBoard = Math.max(maxOnBoard, game.fruits.length);
+  }
+  eq(seen.length, 3, 'all three fruits spawned in one level');
+  ok(maxOnBoard >= 2, 'fruits coexist rather than replacing each other', `${maxOnBoard}`);
+  ok(seen.includes('cherry'), 'a cherry is always among them', seen.join(','));
+
+  // The arcade fruit order and values must be untouched by any of this.
+  const expected = [
+    ['cherry', 100],
+    ['strawberry', 300],
+    ['orange', 500],
+    ['apple', 700],
+    ['melon', 1000],
+    ['galaxian', 2000],
+    ['bell', 3000],
+    ['key', 5000],
+  ];
+  expected.forEach(([id, pts], i) => {
+    eq(FRUITS[i].id, id, `fruit ${i + 1} is the ${id}`);
+    eq(FRUITS[i].points, pts, `${id} scores ${pts}`);
+  });
+  for (const [lvl, id] of [[1, 'cherry'], [2, 'strawberry'], [3, 'orange'], [4, 'orange'],
+                           [5, 'apple'], [7, 'melon'], [9, 'galaxian'], [11, 'bell'], [13, 'key']]) {
+    eq(levelConfig(lvl).fruit.id, id, `level ${lvl} fruit is the ${id}`);
+  }
 }
 
 // -------------------------------------------------------- scoring & scoring

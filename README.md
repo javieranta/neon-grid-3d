@@ -22,8 +22,15 @@ The full arcade rule set, reimplemented as pure logic, wrapped in a synthwave re
 | **Power pellets** | Per-level fright durations, ghost chain 200 → 400 → 800 → 1600, end-of-fright flashing |
 | **Ghost house** | Personal dot counters, the global counter that takes over after a death, and the release timeout |
 | **Speeds** | Arcade percentages of 75.76 px/s, including tunnel slowdown and frightened speeds |
-| **Fruit** | All eight, appearing at 70 and 170 dots, worth 100 → 5000 |
+| **Fruit** | All eight authentic items — cherry 100, strawberry 300, orange 500, apple 700, melon 1000, Galaxian 2000, bell 3000, key 5000 — on the arcade's per-level order |
 | **Lives** | Three, extra life at 10,000, per-level progression to 21+ |
+
+One deliberate departure from the arcade: it spawns **three** fruits per level
+rather than two, at three separate tiles — the arcade's own spot below the ghost
+house plus both side tunnels — and they can be on the board at once. Two
+appearances on a single tile meant a level could be cleared without ever meeting
+one. A cherry is always among the three whatever the level. The items, their order
+and their point values are untouched.
 
 Nothing is loaded from disk: every mesh, texture, sound and note is generated at runtime.
 

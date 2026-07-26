@@ -91,7 +91,7 @@ function boot() {
   });
 
   game.on('fruitSpawn', ({ fruit }) => {
-    hud.showToast(`${fruit.label} — ${fruit.points} PTS`, 2.2);
+    hud.showToast(`${fruit.label} ON THE GRID — ${fruit.points} PTS`, 2.4);
     audio.ui();
   });
 

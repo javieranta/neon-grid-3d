@@ -135,6 +135,26 @@ export const SCORE = {
   extraLifeAt: 10000,
 };
 
-/** Dots eaten thresholds that make a fruit appear. */
-export const FRUIT_TRIGGERS = [70, 170];
-export const FRUIT_LIFETIME = [9, 10]; // seconds, randomised between these
+/**
+ * Dots eaten thresholds that make a fruit appear.
+ *
+ * The arcade uses two (70 and 170); this uses three, and starts earlier, because
+ * two appearances on a single tile meant a level could be cleared without ever
+ * meeting one.
+ */
+export const FRUIT_TRIGGERS = [40, 105, 175];
+
+/**
+ * Where each of those fruits appears, in tile coordinates. All three are dotless
+ * tiles, so there is never any doubt about what is being eaten. The first is the
+ * arcade's own spot below the ghost house; the other two sit in the side tunnels,
+ * which are risky ground and make the detour a real decision.
+ */
+export const FRUIT_SPAWNS = [
+  { x: 13.5, y: 17 },
+  { x: 6, y: 14 },
+  { x: 21, y: 14 },
+];
+
+/** Seconds on the board, randomised between these. */
+export const FRUIT_LIFETIME = [11, 13];

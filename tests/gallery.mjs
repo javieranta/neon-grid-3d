@@ -89,7 +89,7 @@ await page.evaluate(() => {
   game.pacman.x = 9; game.pacman.y = 20; game.pacman.dir = 'left'; game.pacman.desiredDir = 'left';
   game.mode = 'chase';
   // A fruit waiting under the ghost house.
-  game.fruit = { x: 13.5, y: 17, timer: 9, def: game.cfg.fruit };
+  game.fruits = [{ x: 13.5, y: 17, timer: 9, def: game.cfg.fruit, slot: 0 }];
 });
 await freeze(page);
 await page.waitForTimeout(2500);

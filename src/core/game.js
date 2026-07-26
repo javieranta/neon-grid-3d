@@ -9,7 +9,9 @@
 import { advance, createActor, lockLane, tileOf, tryTurn } from './actor.js';
 import { DIRECTIONS, SPAWN, TILE, createMaze, deltaX } from './maze.js';
 import {
+  FRUITS,
   FRUIT_LIFETIME,
+  FRUIT_SPAWNS,
   FRUIT_TRIGGERS,
   FULL_SPEED_TPS,
   GLOBAL_DOT_LIMITS,
@@ -99,7 +101,8 @@ export function createGame(options = {}) {
     elroySuspended: false,
     releaseTimer: 0,
     munchStall: 0,
-    fruit: null,
+    /** Every fruit currently on the board. Several can coexist. */
+    fruits: [],
     fruitsSpawned: 0,
     fruitHistory: [],
     scorePopups: [],
@@ -148,7 +151,7 @@ export function createGame(options = {}) {
     game.waveTimer = 0;
     game.munchStall = 0;
     game.releaseTimer = 0;
-    game.fruit = null;
+    game.fruits.length = 0;
 
     const limits = houseDotLimits(game.level);
     game.ghosts.pinky.dotLimit = limits.pinky;
@@ -354,7 +357,8 @@ export function createGame(options = {}) {
         emit('pellet', { remaining: maze.remaining });
       }
 
-      if (FRUIT_TRIGGERS.includes(game.dotsEaten)) spawnFruit();
+      const trigger = FRUIT_TRIGGERS.indexOf(game.dotsEaten);
+      if (trigger >= 0) spawnFruit(trigger);
       if (maze.remaining === 0) {
         setState(STATE.LEVEL_CLEAR, LEVEL_CLEAR_TIME);
         game.levelFlash = 0;
@@ -398,36 +402,40 @@ export function createGame(options = {}) {
 
   // -------------------------------------------------------------------- fruit
 
-  function spawnFruit() {
+  /**
+   * Spawns the fruit for one trigger. Slot 1 is always a cherry regardless of
+   * level - it is the signature item - while the others are the level's own fruit
+   * from the arcade table.
+   */
+  function spawnFruit(slot) {
+    const where = FRUIT_SPAWNS[slot] ?? SPAWN.fruit;
+    const def = slot === 1 ? FRUITS[0] : game.cfg.fruit;
     const life = FRUIT_LIFETIME[0] + rng() * (FRUIT_LIFETIME[1] - FRUIT_LIFETIME[0]);
-    game.fruit = {
-      x: SPAWN.fruit.x,
-      y: SPAWN.fruit.y,
-      timer: life,
-      def: game.cfg.fruit,
-    };
+    const fruit = { x: where.x, y: where.y, timer: life, def, slot };
+    game.fruits.push(fruit);
     game.fruitsSpawned++;
-    emit('fruitSpawn', { fruit: game.fruit.def });
+    emit('fruitSpawn', { fruit: def, remaining: FRUIT_TRIGGERS.length - game.fruitsSpawned });
   }
 
   function updateFruit(dt) {
-    const f = game.fruit;
-    if (!f) return;
-    f.timer -= dt;
-    if (f.timer <= 0) {
-      game.fruit = null;
-      emit('fruitExpire', {});
-      return;
-    }
     const p = game.pacman;
-    const dx = deltaX(f.x, p.x);
-    const dy = p.y - f.y;
-    if (dx * dx + dy * dy < 0.7) {
-      addScore(f.def.points);
-      pushPopup(f.x, f.y, f.def.points);
-      game.fruitHistory.push(f.def);
-      game.fruit = null;
-      emit('fruitEaten', { fruit: f.def, points: f.def.points });
+    for (let i = game.fruits.length - 1; i >= 0; i--) {
+      const f = game.fruits[i];
+      f.timer -= dt;
+      if (f.timer <= 0) {
+        game.fruits.splice(i, 1);
+        emit('fruitExpire', { fruit: f.def });
+        continue;
+      }
+      const dx = deltaX(f.x, p.x);
+      const dy = p.y - f.y;
+      if (dx * dx + dy * dy < 0.7) {
+        addScore(f.def.points);
+        pushPopup(f.x, f.y, f.def.points);
+        game.fruitHistory.push(f.def);
+        game.fruits.splice(i, 1);
+        emit('fruitEaten', { fruit: f.def, points: f.def.points });
+      }
     }
   }
 

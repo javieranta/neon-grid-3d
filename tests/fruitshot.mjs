@@ -28,7 +28,7 @@ for (const [i, id] of ids.entries()) {
   await page.evaluate(({ id, i }) => {
     const g = window.__neon.game;
     const defs = { cherry:100, strawberry:300, orange:500, apple:700, melon:1000, galaxian:2000, bell:3000, key:5000 };
-    g.fruit = { x: 13.5, y: 17, timer: 9, def: { id, points: defs[id], label: id.toUpperCase() } };
+    g.fruits = [{ x: 13.5, y: 17, timer: 9, def: { id, points: defs[id], label: id.toUpperCase() }, slot: 0 }];
     g.pacman.x = 13.5; g.pacman.y = 20;
     void i;
   }, { id, i });
@@ -36,14 +36,18 @@ for (const [i, id] of ids.entries()) {
   const info = await page.evaluate(() => {
     let visible = 0, meshes = 0;
     window.__neon.view.scene.traverse((o) => { if (o.isMesh && o.visible) meshes++; });
-    return { meshes, fruit: !!window.__neon.game.fruit };
+    return { meshes, fruit: window.__neon.game.fruits.length };
   });
   if (i === 0) console.log('fruit render sanity:', JSON.stringify(info));
 }
 // Screenshot the cherry with the camera pulled toward the fruit.
 await page.evaluate(() => {
   const g = window.__neon.game;
-  g.fruit = { x: 13.5, y: 17, timer: 9, def: { id: 'cherry', points: 100, label: 'CHERRY' } };
+  g.fruits = [
+    { x: 13.5, y: 17, timer: 9, def: { id: 'cherry', points: 100, label: 'CHERRY' }, slot: 0 },
+    { x: 6, y: 14, timer: 9, def: { id: 'cherry', points: 100, label: 'CHERRY' }, slot: 1 },
+    { x: 21, y: 14, timer: 9, def: { id: 'strawberry', points: 300, label: 'STRAWBERRY' }, slot: 2 },
+  ];
   g.pacman.x = 13.5; g.pacman.y = 20; g.pacman.dir = 'up';
   window.__neon.setPaused(true);
   const c = document.getElementById('centre'); if (c) c.style.display = 'none';

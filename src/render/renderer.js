@@ -197,15 +197,20 @@ export function createRenderer(canvas, game, tierName) {
     }
   }
 
+  // One slot per possible simultaneous fruit: a spinning model plus its pedestal
+  // ring and light column.
   const fruitFactory = createFruitFactory();
-  const fruitHolder = new THREE.Group();
-  fruitHolder.visible = false;
-  world.add(fruitHolder);
-  const fruitAura = createFruitAura();
-  world.add(fruitAura.group);
-  let currentFruitId = null;
-  let fruitModelHolder = new THREE.Group();
-  fruitHolder.add(fruitModelHolder);
+  const fruitSlots = [];
+  for (let i = 0; i < 3; i++) {
+    const holder = new THREE.Group();
+    const modelHolder = new THREE.Group();
+    holder.add(modelHolder);
+    holder.visible = false;
+    const aura = createFruitAura();
+    aura.group.visible = false;
+    world.add(holder, aura.group);
+    fruitSlots.push({ holder, modelHolder, aura, id: null });
+  }
 
   const popups = createPopupPool(8);
   world.add(popups.group);
@@ -384,31 +389,34 @@ export function createRenderer(canvas, game, tierName) {
   }
 
   function syncFruit(time) {
-    const f = game.fruit;
-    if (!f) {
-      fruitHolder.visible = false;
-      fruitAura.group.visible = false;
-      return;
-    }
-    if (currentFruitId !== f.def.id) {
-      fruitModelHolder.clear();
-      fruitModelHolder.add(fruitFactory(f.def.id));
-      currentFruitId = f.def.id;
-    }
-    const wx = worldX(f.x);
-    const wz = worldZ(f.y);
-    fruitHolder.visible = true;
-    fruitHolder.position.set(wx, 0.55 + Math.sin(time * 3) * 0.07, wz);
-    fruitHolder.rotation.y = time * 1.5;
+    for (let i = 0; i < fruitSlots.length; i++) {
+      const slot = fruitSlots[i];
+      const f = game.fruits[i];
+      if (!f) {
+        slot.holder.visible = false;
+        slot.aura.group.visible = false;
+        continue;
+      }
+      if (slot.id !== f.def.id) {
+        // Each fruit model is cached and shared, so it has to be re-parented
+        // rather than cloned when a slot changes type.
+        slot.modelHolder.clear();
+        slot.modelHolder.add(fruitFactory(f.def.id));
+        slot.id = f.def.id;
+      }
+      const wx = worldX(f.x);
+      const wz = worldZ(f.y);
+      slot.holder.visible = true;
+      slot.holder.position.set(wx, 0.55 + Math.sin(time * 3 + i) * 0.07, wz);
+      slot.holder.rotation.y = time * 1.5 + i;
+      slot.aura.group.position.set(wx, 0.03, wz);
+      slot.aura.update(time);
 
-    fruitAura.group.visible = true;
-    fruitAura.group.position.set(wx, 0.03, wz);
-    fruitAura.update(time);
-
-    // Blink out over the last two seconds of its life.
-    const blink = f.timer > 2 || Math.sin(time * 16) > -0.3;
-    fruitModelHolder.visible = blink;
-    fruitAura.group.visible = blink;
+      // Blink out over the last two seconds of its life.
+      const blink = f.timer > 2 || Math.sin(time * 16 + i) > -0.3;
+      slot.modelHolder.visible = blink;
+      slot.aura.group.visible = blink;
+    }
   }
 
   let elapsed = 0;
