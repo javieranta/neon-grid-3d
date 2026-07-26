@@ -35,6 +35,28 @@ in the close cameras (`game.steer`), which is the mapping a thumbstick wants.
 
 ---
 
+## Hard requirements this codebase does not yet meet
+
+Found by auditing the code against this document rather than by recalling it. Each
+is a change that must happen or nothing renders in a headset.
+
+**The render loop must become `renderer.setAnimationLoop`.** `src/main.js` drives
+everything from `requestAnimationFrame` (three call sites). A WebXR session will not
+present frames from rAF — the session supplies its own frame callback, and three
+routes it through `setAnimationLoop`. The fixed-timestep accumulator moves inside
+that callback unchanged; only the scheduler changes.
+
+**The resize handler must stand down during a session.** `resize()` in
+`src/render/renderer.js` calls `renderer.setSize(...)` on every window resize and
+orientation change. In a session the XR runtime owns the drawing buffer, so this
+fights it. Guard the body with `if (renderer.xr.isPresenting) return;` and re-run it
+once on session end.
+
+**Foveation and framebuffer scale are the first performance levers**, before any
+tier change: `renderer.xr.setFoveation(0.5)` and
+`renderer.xr.setFramebufferScaleFactor(0.9)`. Reach for these before cutting
+geometry.
+
 ## The one real blocker: post-processing
 
 `EffectComposer` does not work in a WebXR session. It renders to its own
@@ -75,6 +97,37 @@ inherit it.
 
 ---
 
+## Audio is not spatialised at all
+
+`src/audio/synth.js` has no `PannerNode` and no `AudioListener` — every voice goes
+straight to the master bus. On a flat screen that is fine. In a headset it is the
+single largest missed opportunity: a ghost you cannot see but can *hear* approaching
+down a corridor is most of the tension of this game in VR.
+
+The work is contained, because the audio layer is already event-driven:
+
+- Add an `AudioListener` and drive its pose from `view.playerRig` each frame.
+- Give each of the four ghosts a `PannerNode` (HRTF, inverse distance) fed by a
+  quiet looped tone, positioned from `game.ghosts[id]` — the simulation already has
+  their world positions.
+- Spatialise the pellet munch and the fruit collect at Pac-Man's position.
+- Leave the music and the siren on the unspatialised master bus; ambient beds should
+  not move with the head.
+
+## HUD migration is bigger than one line
+
+`index.html` carries about fifteen identified HUD elements: score, high score, level,
+lives, collected fruit, the four ghost chips, the two ability pip rows, the fruit
+bearing tracker, the power-pellet bar, toasts and the centre overlay. None of it
+renders in a headset — DOM overlays simply do not exist in a session.
+
+Cheapest credible path: rely on the **in-world arcade signage**, which already
+displays score, high score and level on lit panels around the board, and add one
+small panel parented to `playerRig` for the things a player needs at a glance —
+lives, jumps, scouts. The fruit bearing tracker is the awkward one: its whole point
+is direction, so in VR it wants to become a world-space marker or an audio cue
+rather than a screen-edge chip.
+
 ## Comfort checklist
 
 - Comfort mode on: no DoF, no shake, no FOV changes. Already implemented.
@@ -89,6 +142,15 @@ inherit it.
 - Keep a stable horizon: the sky dome already follows the camera's world position.
 - Target 72 Hz minimum. The ultra tier is ~1.6M triangles with a full extra scene
   render for DoF; the VR build should start from the `medium` tier with DoF off.
+- **Every performance figure in this repository is from software rasterisation.**
+  All the captures and test runs were made in headless Chromium with SwiftShader at
+  four to twelve frames per second. Nothing here has ever been measured on a GPU, let
+  alone on a headset, so treat the tier recommendation as a starting guess and
+  measure first.
+- The mirrored reflection world under the floor is real duplicated geometry, not a
+  post effect. It roughly doubles the scene, and in VR that cost is paid per eye. It
+  is the first thing to try switching off if the frame budget is tight —
+  `quality.reflections` and `quality.reflectActors` already gate it.
 
 ---
 
@@ -118,6 +180,21 @@ they are all pure simulation calls with no rendering coupling.
    score, high score and level.
 
 ---
+
+## How to test without a headset
+
+There is no automated coverage of any of this, and there cannot easily be: Playwright
+does not implement WebXR, so the existing browser suite cannot enter a session.
+
+- Use the **WebXR API Emulator** browser extension for pose and controller input. It
+  is enough to verify the session starts, the rig composes with the head pose, the
+  composer bypass works and the controls map correctly.
+- Keep `?comfort=1` in the URL while developing so you are always testing the
+  configuration the headset will use.
+- The simulation suites (`npm test`) stay valid throughout — they never touch the
+  renderer, so gameplay regressions are still caught headlessly.
+- Budget a real device pass. The emulator will not reveal comfort problems, and the
+  rig-rotation question above can only really be judged wearing the thing.
 
 ## Things that will NOT need touching
 
