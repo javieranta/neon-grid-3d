@@ -381,6 +381,13 @@ async function run() {
     ok(mob.analysis.brightness > 0.02, 'mobile gameplay frame is lit', `brightness ${mob.analysis.brightness.toFixed(3)}`);
     ok(mob.analysis.magentaRatio > 0.01, 'mobile shows magenta neon', `${(mob.analysis.magentaRatio * 100).toFixed(1)}%`);
 
+    // Close third person is the default framing now, so assert that, then switch
+    // to the overview to test its fit behaviour - that is what this check is for.
+    const defaultMode = await page.evaluate(() => window.__neon.view.cameraMode);
+    eqLabel(defaultMode, 'chase', 'gameplay starts in close third person');
+    await page.evaluate(() => window.__neon.view.setCameraMode('overview'));
+    await page.waitForTimeout(1400);
+
     // The whole maze must be inside the viewport in portrait: check that the
     // projected maze corners land on screen.
     const framing = await page.evaluate(() => {

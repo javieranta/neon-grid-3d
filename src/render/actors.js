@@ -152,10 +152,10 @@ export function createPacman(quality) {
     upper.add(eye);
   }
 
-  const halo = glowSprite(0xfff0a0, 3.6, 0.6);
+  const halo = glowSprite(0xfff0a0, 1.9, 0.3);
   group.add(halo);
 
-  const pool = lightPool(PALETTE.pac, 3.8, 0.62);
+  const pool = lightPool(PALETTE.pac, 2.5, 0.4);
 
   // Locator ring. At a full-maze framing on a phone Pac-Man is only a few
   // pixels across, so a thin pulsing circle on the floor makes him findable at
@@ -179,13 +179,14 @@ export function createPacman(quality) {
   // Lights are added conditionally: an unused light still costs a uniform slot.
   let light = null;
   if (quality.actorLights) {
-    light = new THREE.PointLight(0xffd54a, 2.6, 6.5, 1.8);
+    light = new THREE.PointLight(0xffd54a, 1.0, 3.1, 2.1);
     light.position.y = 0.2;
     group.add(light);
   }
 
   const root = new THREE.Group();
   root.add(group);
+  let lampScale = 1;
 
   return {
     root,
@@ -201,6 +202,15 @@ export function createPacman(quality) {
       upper.visible = on;
       lower.visible = on;
       halo.visible = on;
+    },
+    /**
+     * The locator ring exists so Pac-Man is findable at a full-board framing. Up
+     * close it is just a hoop underfoot, and the lamp has to come down too or it
+     * floods the corridor walls.
+     */
+    setCloseUp(close) {
+      ring.visible = !close;
+      lampScale = close ? 0.42 : 1;
     },
     /**
      * @param {object} pac   game pacman actor
@@ -226,7 +236,7 @@ export function createPacman(quality) {
         group.rotation.y += death * 6.5;
         halo.material.opacity = 0.42 * shrink;
         pool.material.opacity = 0.5 * shrink;
-        if (light) light.intensity = 2.6 * shrink;
+        if (light) light.intensity = lampScale * shrink;
         ringMat.opacity = 0.55 * shrink;
         ring.scale.setScalar(1 + (1 - shrink) * 1.6);
         return;
@@ -240,9 +250,9 @@ export function createPacman(quality) {
 
       const bob = Math.sin(time * 9) * 0.012;
       root.position.y = PAC_Y + bob;
-      halo.material.opacity = 0.5 + 0.14 * Math.sin(time * 6);
-      pool.material.opacity = 0.5 + 0.14 * Math.sin(time * 6);
-      if (light) light.intensity = 2.4 + 0.5 * Math.sin(time * 7);
+      halo.material.opacity = (0.26 + 0.08 * Math.sin(time * 6)) * lampScale;
+      pool.material.opacity = 0.3 + 0.08 * Math.sin(time * 6);
+      if (light) light.intensity = lampScale * (0.95 + 0.2 * Math.sin(time * 7));
 
       const beat = 0.5 + 0.5 * Math.sin(time * 3.1);
       ring.scale.setScalar(0.9 + beat * 0.22);

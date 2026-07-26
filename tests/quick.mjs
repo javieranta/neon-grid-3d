@@ -40,5 +40,17 @@ await page.evaluate((m) => window.__neon.view.setCameraMode(m), mode);
 await page.waitForTimeout(Number(process.env.WAIT || 3000));
 const name = process.env.NAME || 'quick';
 await page.screenshot({ path: join(OUT, `${name}.png`) });
-console.log(name, JSON.stringify(await page.evaluate(() => window.__neon.stats())));
+console.log(name, JSON.stringify(await page.evaluate(() => {
+  const v = window.__neon.view, g = window.__neon.game;
+  return {
+    ...v.stats(),
+    mode: v.cameraMode,
+    cam: [+v.camera.position.x.toFixed(2), +v.camera.position.y.toFixed(2), +v.camera.position.z.toFixed(2)],
+    fov: +v.camera.fov.toFixed(1),
+    pac: [+g.pacman.x.toFixed(2), +g.pacman.y.toFixed(2)],
+    dir: g.pacman.dir,
+    state: g.state,
+    wallY: +(v.scene.getObjectByProperty('type','Group') ? 0 : 0),
+  };
+})));
 await browser.close(); server.close();

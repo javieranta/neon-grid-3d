@@ -14,6 +14,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 
 export const NeonGradeShader = {
   uniforms: {
@@ -135,6 +136,15 @@ export function createPostFX(renderer, scene, camera, quality) {
   composer.setSize(size.x, size.y);
   composer.addPass(new RenderPass(scene, camera));
 
+  // Depth of field. Costs a second scene render for depth, so it is gated to the
+  // tiers that can carry it. MUST stay off in VR: a headset renders per eye and
+  // the viewer accommodates naturally, so baked blur reads as permanent softness.
+  let bokeh = null;
+  if (quality.dof) {
+    bokeh = new BokehPass(scene, camera, { focus: 3.2, aperture: 0.00022, maxblur: 0.006 });
+    composer.addPass(bokeh);
+  }
+
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(size.x, size.y),
     quality.bloomStrength,
@@ -161,10 +171,28 @@ export function createPostFX(renderer, scene, camera, quality) {
   let glitchTimer = 0;
   let glitchDuration = 0.001;
 
+  const bokehUniforms = bokeh ? bokeh.uniforms ?? bokeh.materialBokeh?.uniforms ?? null : null;
+
   return {
     composer,
     bloom,
     grade,
+    /** Keeps the focal plane on Pac-Man; `dist` is camera-to-subject in units. */
+    setFocus(dist) {
+      if (!bokehUniforms || !bokehUniforms.focus) return;
+      bokehUniforms.focus.value = Math.max(0.5, dist);
+    },
+    get hasDof() {
+      return !!bokeh && bokeh.enabled !== false;
+    },
+    /**
+     * Depth of field costs a whole extra scene render, so a tier downgrade has to
+     * be able to switch it off - otherwise the watchdog steps down and the most
+     * expensive pass in the chain keeps running.
+     */
+    setDof(on) {
+      if (bokeh) bokeh.enabled = on;
+    },
     /** `w`/`h` are drawing-buffer (device) pixels. */
     setSize(w, h) {
       // composer.setSize already forwards to every pass, including the bloom mip

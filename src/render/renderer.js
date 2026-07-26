@@ -37,7 +37,7 @@ export const CAMERA_MODES = ['overview', 'chase', 'firstPerson', 'cinematic'];
  * corridor drama the reference art has, and first-person sits near the 75-80
  * degrees a headset presents per eye, which keeps the VR port honest.
  */
-const MODE_FOV = { overview: 62, chase: 68, firstPerson: 68, cinematic: 60 };
+const MODE_FOV = { overview: 62, chase: 60, firstPerson: 68, cinematic: 60 };
 
 /* ------------------------------------------------------------- camera framing */
 
@@ -318,15 +318,18 @@ export function createRenderer(canvas, game, tierName) {
       desiredLook.set(0, 2.6 + sweep * 1.6, -6);
     } else if (cam.mode === 'chase') {
       const dirVec = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[pac.dir] ?? [-1, 0];
-      // Trailing at three-quarters rather than dead astern: directly behind him
-      // his mouth - the thing that makes him readable - is never in shot.
+      // Directly behind him, centred in the lane. Corridors are one tile wide, so
+      // any real lateral offset puts the camera inside the side wall - an earlier
+      // over-the-shoulder rig did exactly that and clipped through geometry. Eye
+      // height stays below the stretched corridor tops so the walls frame the shot
+      // instead of the camera looking out over the whole board.
       const perp = [-dirVec[1], dirVec[0]];
       desiredPos.set(
-        px - dirVec[0] * 4.4 + perp[0] * 2.6,
-        3.1,
-        pz - dirVec[1] * 4.4 + perp[1] * 2.6
+        px - dirVec[0] * 2.7 + perp[0] * 0.13,
+        0.9,
+        pz - dirVec[1] * 2.7 + perp[1] * 0.13
       );
-      desiredLook.set(px + dirVec[0] * 2.4, 0.4, pz + dirVec[1] * 2.4);
+      desiredLook.set(px + dirVec[0] * 3.4, 0.46, pz + dirVec[1] * 3.4);
       // Pac-Man teleports by a full maze width at the side tunnel; lerping
       // through that jump whip-pans the camera across the middle of the board,
       // through the walls, every time the player uses the tunnel.
@@ -426,7 +429,9 @@ export function createRenderer(canvas, game, tierName) {
     // The sun is masked for the bake. It is orders of magnitude brighter than the
     // neon, and leaving it in put a blown-out highlight back on the wall tops.
     env.setSunVisible(false);
-    const rt = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+    const rt = new THREE.WebGLCubeRenderTarget(quality.envSize ?? 256, {
+      type: THREE.HalfFloatType,
+    });
     const cubeCam = new THREE.CubeCamera(0.1, 260, rt);
     cubeCam.position.set(0, 1.1, 0);
     scene.add(cubeCam);
@@ -488,11 +493,15 @@ export function createRenderer(canvas, game, tierName) {
     // In first person Pac-Man IS the camera, so his shell, light pool and
     // reflection all have to go or they fill the frame from the inside.
     const fpv = cam.mode === 'firstPerson';
-    mazeMesh.setStretch(fpv ? 3.1 : 1, dt);
+    // Kerb height only suits the overview. Any close camera looks straight over
+    // the maze unless the walls come up, so chase gets the stretch too.
+    const stretchFor = { firstPerson: 3.1, chase: 3.1 };
+    mazeMesh.setStretch(stretchFor[cam.mode] ?? 1, dt);
 
     // The shell goes, the lamp stays: in first person Pac-Man's own point light
     // is what lights the corridor walls around the player.
     pacman.setBodyVisible(!fpv);
+    pacman.setCloseUp(cam.mode === 'chase' || fpv);
     pacman.pool.visible = !fpv;
     if (reflPacman) reflPacman.root.visible = !fpv;
     pellets.reflection.visible = reflectionRig.visible;
@@ -515,6 +524,16 @@ export function createRenderer(canvas, game, tierName) {
     popups.sync(game.scorePopups);
 
     updateCamera(dt, time);
+
+    // Keep the focal plane on Pac-Man so he stays the sharp subject.
+    if (post.hasDof) {
+      const fx = worldX(game.pacman.x);
+      const fz = worldZ(game.pacman.y);
+      post.setFocus(
+        Math.hypot(camera.position.x - fx, camera.position.y - 0.45, camera.position.z - fz)
+      );
+    }
+
     post.update(dt, time);
     post.render();
   }
@@ -540,6 +559,7 @@ export function createRenderer(canvas, game, tierName) {
     post.grade.uniforms.scanline.value = quality.scanline;
     post.grade.uniforms.grain.value = quality.grain;
     post.setMsaa(quality.msaa);
+    post.setDof(!!quality.dof);
 
     env.setMotes(quality.motes > 0);
     env.setShafts(quality.shafts);

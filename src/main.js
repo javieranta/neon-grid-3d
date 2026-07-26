@@ -126,7 +126,8 @@ function boot() {
 
   game.on('ready', ({ intro }) => {
     audio.ready();
-    if (intro) view.setCameraMode('overview');
+    // Close third person is the default framing; C cycles out to the full board.
+    if (intro) view.setCameraMode('chase');
   });
 
   game.on('gameOver', () => {
@@ -160,7 +161,7 @@ function boot() {
     if (game.state === STATE.ATTRACT) {
       hud.hideTitle();
       game.startGame();
-      view.setCameraMode('overview');
+      view.setCameraMode('chase');
     }
   }
 
@@ -323,7 +324,7 @@ function boot() {
     start: () => {
       hud.hideTitle();
       game.startGame();
-      view.setCameraMode('overview');
+      view.setCameraMode('chase');
     },
     stats: () => ({ ...view.stats(), fps }),
     get paused() {

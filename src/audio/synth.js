@@ -83,12 +83,12 @@ export function createAudio() {
     wet.connect(master);
 
     musicGain = ctx.createGain();
-    musicGain.gain.value = 0.34;
+    musicGain.gain.value = 0.62;
     musicGain.connect(master);
     musicGain.connect(reverbSend);
 
     fxGain = ctx.createGain();
-    fxGain.gain.value = 0.7;
+    fxGain.gain.value = 0.58;
     fxGain.connect(master);
     fxGain.connect(reverbSend);
 
@@ -364,7 +364,7 @@ export function createAudio() {
     },
     setMusic(on) {
       musicOn = on;
-      if (musicGain) musicGain.gain.value = on ? 0.34 : 0;
+      if (musicGain) musicGain.gain.value = on ? 0.62 : 0;
     },
 
     /** 0..1 — drives filter brightness and arp energy. */
@@ -376,7 +376,7 @@ export function createAudio() {
     setSiren(mode, progress = 0) {
       if (!ctx || !siren) return;
       const t = ctx.currentTime;
-      const target = { normal: 0.1, fright: 0.13, retreat: 0.11, off: 0 }[mode] ?? 0;
+      const target = { normal: 0.055, fright: 0.08, retreat: 0.07, off: 0 }[mode] ?? 0;
       sirenGain.gain.setTargetAtTime(enabled ? target : 0, t, 0.08);
       if (mode === 'off') return;
       if (mode === 'fright') {
@@ -400,9 +400,12 @@ export function createAudio() {
     /* -------------------------------------------------------------- one-shots */
 
     waka(alt) {
-      // Two alternating chirps make the classic munch rhythm.
-      blip({ freq: alt ? 300 : 210, to: alt ? 140 : 95, type: 'square', dur: 0.075, gain: 0.16 });
-      blip({ freq: alt ? 600 : 420, to: alt ? 280 : 190, type: 'triangle', dur: 0.06, gain: 0.07 });
+      // Two alternating chirps make the classic munch rhythm. Deliberately soft:
+      // square waves at this repetition rate are the harsh, nagging part, so the
+      // body is a triangle, the level is roughly a third of what it was, and the
+      // sparkle on top is a quiet sine rather than a second buzzing edge.
+      blip({ freq: alt ? 260 : 190, to: alt ? 150 : 110, type: 'triangle', dur: 0.055, gain: 0.055 });
+      blip({ freq: alt ? 520 : 380, to: alt ? 300 : 220, type: 'sine', dur: 0.045, gain: 0.022 });
     },
     energizer() {
       for (let i = 0; i < 6; i++) {
