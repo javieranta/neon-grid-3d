@@ -269,46 +269,70 @@ function applyDepthGradient(geo, nearColour, farColour, boost = 1) {
  * read as surface detail, large enough not to alias at a full-maze framing.
  */
 function panelTexture() {
-  const size = 256;
+  const size = 512;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, size, size);
 
-  ctx.strokeStyle = 'rgba(150, 95, 255, 0.14)';
-  ctx.lineWidth = 1;
-  for (let y = 4; y < size; y += 8) {
-    ctx.beginPath();
-    ctx.moveTo(0, y + 0.5);
-    ctx.lineTo(size, y + 0.5);
-    ctx.stroke();
+  // A square tile grid with grout, not just horizontal seams: the reference walls
+  // are laid in panels, and a line-only texture reads as scanlines up close.
+  const TILES = 4;
+  const cell = size / TILES;
+  const rand = (i) => {
+    const v = Math.sin(i * 41.7) * 43758.5453;
+    return v - Math.floor(v);
+  };
+
+  for (let ty = 0; ty < TILES; ty++) {
+    for (let tx = 0; tx < TILES; tx++) {
+      // Faint per-tile variation so the wall is not a flat field.
+      const shade = 0.05 + rand(tx * 7 + ty * 13) * 0.07;
+      ctx.fillStyle = `rgba(150, 100, 255, ${shade.toFixed(3)})`;
+      ctx.fillRect(tx * cell + 2, ty * cell + 2, cell - 4, cell - 4);
+      // A brighter inner bevel along the tile's top and left edges.
+      ctx.strokeStyle = 'rgba(190, 140, 255, 0.3)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(tx * cell + 3, (ty + 1) * cell - 3);
+      ctx.lineTo(tx * cell + 3, ty * cell + 3);
+      ctx.lineTo((tx + 1) * cell - 3, ty * cell + 3);
+      ctx.stroke();
+    }
   }
-  ctx.strokeStyle = 'rgba(215, 150, 255, 0.9)';
+
+  // Grout: the tile joints themselves, brightest of all so they catch the eye.
+  ctx.strokeStyle = 'rgba(205, 150, 255, 0.75)';
   ctx.lineWidth = 3;
-  for (let y = 0; y < size; y += 84) {
+  for (let i = 0; i <= TILES; i++) {
+    const at = i * cell;
     ctx.beginPath();
-    ctx.moveTo(0, y + 0.5);
-    ctx.lineTo(size, y + 0.5);
+    ctx.moveTo(0, at);
+    ctx.lineTo(size, at);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(at, 0);
+    ctx.lineTo(at, size);
     ctx.stroke();
   }
-  ctx.strokeStyle = 'rgba(0, 230, 255, 0.2)';
-  for (let x = 0; x < size; x += 64) {
-    ctx.beginPath();
-    ctx.moveTo(x + 0.5, 0);
-    ctx.lineTo(x + 0.5, size);
-    ctx.stroke();
-  }
+
+  // One cyan accent joint per texture, for a little colour variety.
+  ctx.strokeStyle = 'rgba(0, 230, 255, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, cell * 2);
+  ctx.lineTo(size, cell * 2);
+  ctx.stroke();
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  // Enough vertical repeat for a handful of seams across a wall face, and no
-  // more: at 3 the faces filled with dozens of stripes and read as a hypnotic
-  // tunnel rather than as panelling.
-  tex.repeat.set(0.5, 1.1);
-  tex.anisotropy = 4;
+  // Sized so a texture spans roughly a tile and a half of wall: enough joints to
+  // read as panelling, few enough that they never turn into moire.
+  tex.repeat.set(0.7, 1.4);
+  tex.anisotropy = 8;
   return tex;
 }
 
