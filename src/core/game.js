@@ -444,9 +444,27 @@ export function createGame(options = {}) {
     updatePopups(dt);
 
     switch (game.state) {
-      case STATE.ATTRACT:
+      case STATE.ATTRACT: {
         game.stateTimer += dt;
+        // Keep the board alive on the attract screen. The arcade demonstrated
+        // play here, and a board with four penned ghosts reads as broken. No
+        // collision checks run outside PLAYING, so nothing can die.
+        for (const id of GHOST_ORDER) {
+          const g = game.ghosts[id];
+          if (g.state === 'house' && g.releaseTimer <= 0) beginLeaving(g);
+        }
+        const demoMode = Math.floor(game.stateTimer / 8) % 2 === 0 ? 'scatter' : 'chase';
+        const attractCtx = {
+          maze,
+          cfg: game.cfg,
+          rng,
+          pacman: game.pacman,
+          ghosts: game.ghosts,
+          mode: demoMode,
+        };
+        for (const id of GHOST_ORDER) updateGhost(game.ghosts[id], dt, attractCtx);
         return;
+      }
 
       case STATE.READY:
         game.stateTimer -= dt;

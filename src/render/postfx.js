@@ -29,7 +29,7 @@ export const NeonGradeShader = {
     flashColour: { value: new THREE.Color(0xffffff) },
     glitch: { value: 0 },
     saturation: { value: 1.2 },
-    lift: { value: new THREE.Color(0x0a0218) },
+    lift: { value: new THREE.Color(0x120320) },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -82,7 +82,9 @@ export const NeonGradeShader = {
       float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
       col = mix(vec3(luma), col, saturation);
       col += lift * (1.0 - smoothstep(0.0, 0.34, luma)) * 0.45;
-      col *= mix(vec3(1.0), vec3(0.94, 0.99, 1.06), smoothstep(0.45, 1.0, luma));
+      // Warm the highlights instead of cooling them: a blue bias is what made the
+      // corridors read cold against the reference's magenta.
+      col *= mix(vec3(1.0), vec3(1.06, 0.97, 1.03), smoothstep(0.42, 1.0, luma));
 
       // CRT scanlines plus a faint aperture grille.
       float lines = sin(uv.y * resolution.y * 1.55);

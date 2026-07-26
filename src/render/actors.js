@@ -349,6 +349,33 @@ export function createGhost(id, quality) {
     envMapIntensity: 0.9,
   });
 
+  // Fresnel rim, injected into the physical shader. A flat emissive tint makes a
+  // ghost brighter; an edge-weighted term makes it read as a glowing object,
+  // which is how the reference art separates them from the dark.
+  let rimUniform = null;
+  bodyMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uGhostRim = { value: new THREE.Color(meta.glow) };
+    rimUniform = shader.uniforms.uGhostRim;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vRimNormal;\nvarying vec3 vRimView;'
+      )
+      .replace(
+        '#include <project_vertex>',
+        '#include <project_vertex>\n  vRimNormal = normalize(transformedNormal);\n  vRimView = -mvPosition.xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vRimNormal;\nvarying vec3 vRimView;\nuniform vec3 uGhostRim;'
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\n  float ghostRim = 1.0 - abs(dot(normalize(vRimNormal), normalize(vRimView)));\n  totalEmissiveRadiance += uGhostRim * pow(ghostRim, 2.4) * 1.6;'
+      );
+  };
+
   const dome = new THREE.SphereGeometry(
     GHOST_R,
     quality.ghostSegments,
@@ -507,6 +534,7 @@ export function createGhost(id, quality) {
         bodyMat.emissive.copy(flashing ? flashColour : frightColour);
         bodyMat.emissiveIntensity = flashing ? 1.1 : 0.85;
         auraMat.color.copy(flashing ? flashColour : frightColour);
+        if (rimUniform) rimUniform.value.copy(flashing ? flashColour : frightColour);
         mouth.visible = !hidden;
         mouthMat.color.copy(flashing ? new THREE.Color(0x2b3cff) : flashColour);
         for (const part of eyeParts) part.pupil.visible = false;
@@ -517,6 +545,7 @@ export function createGhost(id, quality) {
         bodyMat.emissive.copy(normalColour);
         bodyMat.emissiveIntensity = 0.7 + 0.12 * Math.sin(time * 4 + phase * 0.2);
         auraMat.color.setHex(meta.glow);
+        if (rimUniform) rimUniform.value.setHex(meta.glow);
         mouth.visible = false;
         for (const part of eyeParts) part.pupil.visible = true;
         for (const brow of brows) brow.visible = !hidden;
