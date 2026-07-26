@@ -156,5 +156,11 @@ export const FRUIT_SPAWNS = [
   { x: 21, y: 14 },
 ];
 
-/** Seconds on the board, randomised between these. */
-export const FRUIT_LIFETIME = [11, 13];
+/**
+ * Seconds on the board, randomised between these.
+ *
+ * Longer than the arcade's nine to ten. A fruit can be twenty-five tiles away and
+ * real maze routes take eight to ten seconds to walk, so the arcade's window only
+ * worked because the arcade showed you the whole board at once.
+ */
+export const FRUIT_LIFETIME = [16, 19];

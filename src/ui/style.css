@@ -443,6 +443,57 @@ body.booted #ui {
   color: #ffcd8f;
 }
 
+/* ------------------------------------------------------------ fruit bearings */
+
+.fruit-tracker {
+  position: absolute;
+  right: max(14px, env(safe-area-inset-right));
+  top: 24%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-end;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.fruit-tracker.visible {
+  opacity: 1;
+}
+
+.fruit-cue {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: #2a0a1e99;
+  border: 1px solid #ffd36e44;
+  backdrop-filter: blur(7px);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #ffe9b8;
+}
+
+.fruit-cue-icon {
+  font-size: 15px;
+  filter: drop-shadow(0 0 6px #ffd36ecc);
+}
+
+/* Rotated per frame to point at the fruit, in Pac-Man's heading frame. */
+.fruit-cue-arrow {
+  font-size: 11px;
+  color: #ffd36e;
+  text-shadow: 0 0 8px #ffb457;
+  transition: transform 0.12s linear;
+}
+
+.fruit-cue em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: #fff6dc;
+}
+
 /* ------------------------------------------------------------------- toast */
 
 .toast {

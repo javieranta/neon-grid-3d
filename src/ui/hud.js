@@ -6,8 +6,14 @@
  */
 
 import { STATE } from '../core/game.js';
+import { DIRECTIONS } from '../core/maze.js';
 import { FRUITS } from '../core/levels.js';
 import { GHOST_META, GHOST_ORDER } from '../core/ghost.js';
+
+/** Direction name -> [dx, dy] in tile space, for the fruit bearing arrow. */
+const DIR_VECTORS = Object.fromEntries(
+  Object.entries(DIRECTIONS).map(([k, v]) => [k, [v.x, v.y]])
+);
 
 const FRUIT_GLYPH = {
   cherry: '🍒',
@@ -37,6 +43,7 @@ export function createHud(root, game) {
   const frightFill = el('#fright-fill');
   const ghostList = el('#ghost-list');
   const toast = el('#toast');
+  const fruitTracker = el('#fruit-tracker');
 
   let lastScore = -1;
   let lastHigh = -1;
@@ -45,6 +52,7 @@ export function createHud(root, game) {
   let lastFruits = -1;
   let lastState = null;
   let toastTimer = 0;
+  let lastFruitKey = '';
 
   // Ghost status chips, one per personality.
   const chips = {};
@@ -130,6 +138,54 @@ export function createHud(root, game) {
       if (game.fruitHistory.length !== lastFruits) {
         lastFruits = game.fruitHistory.length;
         renderFruits(game.fruitHistory);
+      }
+
+      // Live fruit tracker. The close camera shows about eight tiles and no map,
+      // so a fruit twenty tiles away is unfindable without a bearing. The arrow is
+      // rotated into Pac-Man's own heading frame, because the camera sits behind
+      // him and screen-up is whichever way he is facing.
+      if (fruitTracker) {
+        const fruits = game.fruits ?? [];
+        if (fruits.length === 0) {
+          fruitTracker.classList.remove('visible');
+          fruitTracker.innerHTML = '';
+          lastFruitKey = '';
+        } else {
+          const key = fruits.map((f) => `${f.def.id}${Math.round(f.x)}${Math.round(f.y)}`).join('|');
+          if (key !== lastFruitKey) {
+            lastFruitKey = key;
+            fruitTracker.innerHTML = '';
+            for (const f of fruits) {
+              const row = document.createElement('div');
+              row.className = 'fruit-cue';
+              const glyph = document.createElement('span');
+              glyph.className = 'fruit-cue-icon';
+              glyph.textContent = FRUIT_GLYPH[f.def.id] ?? '●';
+              const arrow = document.createElement('span');
+              arrow.className = 'fruit-cue-arrow';
+              arrow.textContent = '▲';
+              const dist = document.createElement('em');
+              row.append(glyph, arrow, dist);
+              fruitTracker.append(row);
+              f._cue = { arrow, dist };
+            }
+          }
+          fruitTracker.classList.add('visible');
+
+          const p = game.pacman;
+          const heading = Math.atan2(DIR_VECTORS[p.dir]?.[0] ?? -1, -(DIR_VECTORS[p.dir]?.[1] ?? 0));
+          for (const f of fruits) {
+            if (!f._cue) continue;
+            // Shortest delta accounting for the wrap tunnel.
+            let dx = f.x - p.x;
+            if (dx > 14) dx -= 28;
+            if (dx < -14) dx += 28;
+            const dy = f.y - p.y;
+            const bearing = Math.atan2(dx, -dy) - heading;
+            f._cue.arrow.style.transform = `rotate(${(bearing * 180) / Math.PI}deg)`;
+            f._cue.dist.textContent = `${Math.round(Math.hypot(dx, dy))}`;
+          }
+        }
       }
 
       // Power-pellet timer bar.

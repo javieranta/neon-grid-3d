@@ -895,20 +895,21 @@ const FRUIT_BUILDERS = {
   },
 };
 
+/**
+ * Builds a fresh fruit model per call.
+ *
+ * Deliberately NOT cached by id: an Object3D has exactly one parent, so a shared
+ * instance gets re-parented from slot to slot and only the last slot draws
+ * anything - which is exactly what happened with three cherries on level one.
+ * Building a handful of small groups per level is not worth caching around.
+ */
 export function createFruitFactory() {
-  const cache = new Map();
   return function getFruit(id) {
-    if (!cache.has(id)) {
-      const builder = FRUIT_BUILDERS[id] ?? FRUIT_BUILDERS.cherry;
-      const model = builder();
-      // The fruit is only on the board for nine seconds, on a tile with no dots
-      // to draw the eye, so it is scaled up and given its own halo.
-      model.scale.setScalar(1.7);
-      const halo = glowSprite(0xffffff, 3.0, 0.5);
-      model.add(halo);
-      cache.set(id, model);
-    }
-    return cache.get(id);
+    const builder = FRUIT_BUILDERS[id] ?? FRUIT_BUILDERS.cherry;
+    const model = builder();
+    model.scale.setScalar(1.7);
+    model.add(glowSprite(0xffffff, 3.0, 0.5));
+    return model;
   };
 }
 
@@ -934,8 +935,11 @@ export function createFruitAura() {
   const ring = new THREE.Mesh(ringGeo, ringMat);
   group.add(ring);
 
-  const beamGeo = new THREE.CylinderGeometry(0.34, 0.62, 3.4, 20, 1, true);
-  beamGeo.translate(0, 1.7, 0);
+  // Tall enough to tower over the maze. A short column is invisible from across
+  // the board, which is the whole reason fruits were being missed.
+  const BEAM_H = 17;
+  const beamGeo = new THREE.CylinderGeometry(0.5, 0.95, BEAM_H, 22, 1, true);
+  beamGeo.translate(0, BEAM_H / 2, 0);
   const beamMat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -956,10 +960,13 @@ export function createFruitAura() {
       uniform vec3 colour;
       uniform float time;
       void main() {
-        float fade = pow(1.0 - vUv.y, 2.0);
+        // Bright at the base, thinning with height, so it reads as a beam rising
+        // out of the fruit rather than a solid pillar.
+        float fade = pow(1.0 - vUv.y, 1.7);
         float edge = sin(vUv.x * 3.14159);
-        float a = fade * edge * (0.16 + 0.05 * sin(time * 3.0));
-        gl_FragColor = vec4(colour * a * 2.0, a);
+        float pulse = 0.22 + 0.09 * sin(time * 3.0);
+        float a = fade * edge * pulse;
+        gl_FragColor = vec4(colour * a * 2.6, a);
       }
     `,
   });

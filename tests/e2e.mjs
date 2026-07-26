@@ -316,6 +316,90 @@ async function run() {
     ok(stats.wallBlocks >= 20, 'wall silhouettes were extracted', `${stats.wallBlocks} blocks`);
     console.log(`  · ${stats.tier} tier · ${stats.triangles.toLocaleString()} tris · ${stats.calls} calls · ${stats.wallBlocks} blocks`);
 
+    // Fruits, by actually PLAYING to the first trigger rather than forcing one.
+    // Every earlier fruit test either drove the pure simulation or injected a fruit
+    // straight into the renderer, so "play a level and meet a fruit" - the thing a
+    // player does - was never covered, and it was broken in practice.
+    await page.evaluate(() => {
+      const { game } = window.__neon;
+      window.__fruitSpawns = [];
+      game.on('fruitSpawn', (e) => window.__fruitSpawns.push(e.fruit.id));
+      const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+      window.__fruitBot = setInterval(() => {
+        if (game.state !== 'playing') return;
+        const px = Math.round(game.pacman.x);
+        const py = Math.round(game.pacman.y);
+        const q = [[px, py, null]];
+        const seen = new Set([`${px},${py}`]);
+        let guard = 0;
+        let pick = null;
+        while (q.length && guard++ < 4000) {
+          const [x, y, first] = q.shift();
+          if (game.maze.pelletAt(x, y) && first) {
+            pick = first;
+            break;
+          }
+          for (const [name, d] of Object.entries(DIRS)) {
+            let nx = x + d[0];
+            const ny = y + d[1];
+            if (nx < 0) nx += 28;
+            if (nx > 27) nx -= 28;
+            const k = `${nx},${ny}`;
+            if (seen.has(k) || !game.maze.walkable(nx, ny)) continue;
+            seen.add(k);
+            q.push([nx, ny, first ?? name]);
+          }
+        }
+        if (pick) game.setDirection(pick);
+        // Pen the ghosts so a death cannot cut the run short.
+        for (const id of Object.keys(game.ghosts)) {
+          const g = game.ghosts[id];
+          if (g.state === 'hunting') {
+            g.state = 'house';
+            g.x = g.meta.homeX;
+            g.y = 14;
+          }
+        }
+      }, 16);
+    });
+
+    await page.waitForFunction(() => window.__fruitSpawns.length > 0, null, { timeout: 90000 });
+    await page.waitForTimeout(600);
+    const fruitState = await page.evaluate(() => {
+      const { game, view } = window.__neon;
+      // Count fruit meshes that are actually visible through their whole parent chain.
+      const FRUIT_HEX = [0xff2b52, 0x4dff8f, 0xff2f6b, 0xffa229, 0xff3355, 0x6dff5c, 0x4dd8ff, 0xffd24d, 0x8ce9ff];
+      let visibleMeshes = 0;
+      view.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        let p = o;
+        while (p) {
+          if (!p.visible) return;
+          p = p.parent;
+        }
+        const m = Array.isArray(o.material) ? o.material[0] : o.material;
+        if (m && m.color && FRUIT_HEX.includes(m.color.getHex())) visibleMeshes++;
+      });
+      const t = document.getElementById('fruit-tracker');
+      return {
+        spawned: window.__fruitSpawns,
+        onBoard: game.fruits.length,
+        dots: game.dotsEaten,
+        visibleMeshes,
+        trackerVisible: !!t && t.classList.contains('visible'),
+        trackerRows: t ? t.querySelectorAll('.fruit-cue').length : 0,
+        trackerDistance: t?.querySelector('.fruit-cue em')?.textContent ?? '',
+      };
+    });
+    ok(fruitState.spawned.length >= 1, 'playing to the trigger spawns a fruit', fruitState.spawned.join(','));
+    ok(fruitState.onBoard >= 1, 'the fruit is on the board', `${fruitState.onBoard}`);
+    ok(fruitState.visibleMeshes >= 2, 'the fruit model is actually rendered', `${fruitState.visibleMeshes} meshes`);
+    ok(fruitState.trackerVisible, 'the HUD fruit tracker is showing');
+    ok(fruitState.trackerRows >= 1, 'tracker has a row per fruit', `${fruitState.trackerRows}`);
+    ok(/^\d+$/.test(fruitState.trackerDistance), 'tracker reports a distance in tiles', fruitState.trackerDistance);
+    console.log(`  · fruit met after ${fruitState.dots} dots: ${fruitState.spawned.join(',')}`);
+    await page.evaluate(() => clearInterval(window.__fruitBot));
+
     // Power pellet: force an energizer and check the frightened visual state.
     await page.evaluate(() => {
       const g = window.__neon.game;
