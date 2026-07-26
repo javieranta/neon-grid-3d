@@ -28,8 +28,8 @@ export const NeonGradeShader = {
     flash: { value: 0 },
     flashColour: { value: new THREE.Color(0xffffff) },
     glitch: { value: 0 },
-    saturation: { value: 1.13 },
-    lift: { value: new THREE.Color(0x1a0630) },
+    saturation: { value: 1.2 },
+    lift: { value: new THREE.Color(0x0a0218) },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -81,7 +81,7 @@ export const NeonGradeShader = {
       // Colour grade: purple lift in the shadows, cyan bias in the highlights.
       float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
       col = mix(vec3(luma), col, saturation);
-      col += lift * (1.0 - smoothstep(0.0, 0.42, luma)) * 0.9;
+      col += lift * (1.0 - smoothstep(0.0, 0.34, luma)) * 0.45;
       col *= mix(vec3(1.0), vec3(0.94, 0.99, 1.06), smoothstep(0.45, 1.0, luma));
 
       // CRT scanlines plus a faint aperture grille.
@@ -106,15 +106,31 @@ export const NeonGradeShader = {
 };
 
 export function createPostFX(renderer, scene, camera, quality) {
-  const size = renderer.getSize(new THREE.Vector2());
+  // Everything here works in DEVICE pixels. renderer.getSize() returns CSS
+  // pixels, while EffectComposer separately multiplies whatever size it is given
+  // by its own cached pixel ratio — feeding it CSS pixels once and drawing-buffer
+  // pixels later made the buffers half resolution at boot and then four times
+  // too large after the first resize. Pinning the composer's ratio to 1 and
+  // always passing drawing-buffer sizes removes the double-count entirely.
+  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
 
+  // Half-float colour attachments are not universal even on WebGL2; falling back
+  // beats rendering a black screen with only a console warning.
+  const hasFloat =
+    renderer.extensions.has('EXT_color_buffer_float') ||
+    renderer.extensions.has('EXT_color_buffer_half_float');
   const target = new THREE.WebGLRenderTarget(size.x, size.y, {
-    type: THREE.HalfFloatType,
+    type: hasFloat ? THREE.HalfFloatType : THREE.UnsignedByteType,
     samples: quality.msaa,
     colorSpace: THREE.LinearSRGBColorSpace,
   });
+  if (!hasFloat) {
+    console.warn('[neon-grid] no float colour attachments; post runs at 8 bit');
+  }
 
   const composer = new EffectComposer(renderer, target);
+  composer.setPixelRatio(1);
+  composer.setSize(size.x, size.y);
   composer.addPass(new RenderPass(scene, camera));
 
   const bloom = new UnrealBloomPass(
@@ -147,10 +163,21 @@ export function createPostFX(renderer, scene, camera, quality) {
     composer,
     bloom,
     grade,
+    /** `w`/`h` are drawing-buffer (device) pixels. */
     setSize(w, h) {
+      // composer.setSize already forwards to every pass, including the bloom mip
+      // chain; calling bloom.setSize again with a different base left the glow
+      // sampling at a fraction of the scene resolution.
       composer.setSize(w, h);
-      bloom.setSize(w, h);
       grade.uniforms.resolution.value.set(w, h);
+    },
+    /** Changing MSAA needs the attachments rebuilt, which dispose() triggers. */
+    setMsaa(samples) {
+      for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+        if (!rt || rt.samples === samples) continue;
+        rt.samples = samples;
+        rt.dispose();
+      }
     },
     /** Triggers a full-screen colour flash. */
     flash(colour, strength = 0.55, duration = 0.28) {

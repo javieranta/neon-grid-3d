@@ -85,7 +85,7 @@ function lightPool(colour, size, opacity = 0.5) {
 
 /* --------------------------------------------------------------------- Pac-Man */
 
-const PAC_R = 0.44;
+const PAC_R = 0.46;
 const PAC_Y = 0.46;
 
 export function createPacman(quality) {
@@ -94,11 +94,11 @@ export function createPacman(quality) {
   const bodyMat = new THREE.MeshPhysicalMaterial({
     color: PALETTE.pac,
     emissive: new THREE.Color(PALETTE.pacDeep),
-    emissiveIntensity: 0.95,
-    metalness: 0.22,
-    roughness: 0.24,
+    emissiveIntensity: 0.8,
+    metalness: 0.1,
+    roughness: 0.11,
     clearcoat: 1,
-    clearcoatRoughness: 0.08,
+    clearcoatRoughness: 0.04,
     envMapIntensity: 1.1,
   });
   const mouthMat = new THREE.MeshStandardMaterial({
@@ -133,6 +133,24 @@ export function createPacman(quality) {
   const upper = makeJaw(true);
   const lower = makeJaw(false);
   group.add(upper, lower);
+
+  // Eyes, as in the reference art: two black almonds high on the front of the
+  // head. Parented to the upper jaw so they ride with it as the mouth works.
+  const eyeMat = new THREE.MeshPhysicalMaterial({
+    color: 0x07030f,
+    roughness: 0.08,
+    clearcoat: 1,
+    clearcoatRoughness: 0.05,
+    metalness: 0,
+  });
+  const pacEyeGeo = new THREE.SphereGeometry(0.115, 18, 14);
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(pacEyeGeo, eyeMat);
+    eye.position.set(PAC_R * 0.52, PAC_R * 0.5, side * PAC_R * 0.36);
+    eye.scale.set(0.55, 1.25, 0.85);
+    eye.rotation.z = -0.22;
+    upper.add(eye);
+  }
 
   const halo = glowSprite(0xfff0a0, 3.6, 0.6);
   group.add(halo);
@@ -172,6 +190,9 @@ export function createPacman(quality) {
   return {
     root,
     pool,
+    setLights(on) {
+      if (light) light.visible = on;
+    },
     /**
      * @param {object} pac   game pacman actor
      * @param {number} time
@@ -224,7 +245,7 @@ export function createPacman(quality) {
 
 /* ---------------------------------------------------------------------- ghosts */
 
-const GHOST_R = 0.41;
+const GHOST_R = 0.46;
 const GHOST_Y = 0.44;
 const SKIRT_SEGMENTS = 40;
 const SKIRT_LOBES = 5;
@@ -311,11 +332,11 @@ export function createGhost(id, quality) {
   const bodyMat = new THREE.MeshPhysicalMaterial({
     color: meta.colour,
     emissive: new THREE.Color(meta.colour),
-    emissiveIntensity: 0.75,
-    metalness: 0.15,
-    roughness: 0.3,
+    emissiveIntensity: 0.6,
+    metalness: 0.05,
+    roughness: 0.1,
     clearcoat: 1,
-    clearcoatRoughness: 0.12,
+    clearcoatRoughness: 0.04,
     envMapIntensity: 0.9,
   });
 
@@ -365,15 +386,15 @@ export function createGhost(id, quality) {
     emissiveIntensity: 0.45,
     roughness: 0.2,
   });
-  const eyeGeo = new THREE.SphereGeometry(0.135, 18, 14);
-  const pupilGeo = new THREE.SphereGeometry(0.068, 14, 12);
+  const eyeGeo = new THREE.SphereGeometry(0.155, 20, 16);
+  const pupilGeo = new THREE.SphereGeometry(0.082, 16, 14);
   const eyeParts = [];
   for (const side of [-1, 1]) {
     const white = new THREE.Mesh(eyeGeo, whiteMat);
-    white.position.set(side * 0.155, 0.115, 0.255);
+    white.position.set(side * 0.168, 0.125, 0.275);
     white.scale.set(1, 1.18, 0.8);
     const pupil = new THREE.Mesh(pupilGeo, pupilMat);
-    pupil.position.set(side * 0.155, 0.115, 0.36);
+    pupil.position.set(side * 0.168, 0.125, 0.395);
     eyes.add(white, pupil);
     eyeParts.push({ white, pupil, side });
   }
@@ -417,7 +438,10 @@ export function createGhost(id, quality) {
   return {
     root,
     pool,
-    update(g, time, frightRatio) {
+    setLights(on) {
+      if (light) light.visible = on;
+    },
+    update(g, time, flashing) {
       const wx = worldX(g.x);
       const wz = worldZ(g.y);
       root.position.set(wx, GHOST_Y, wz);
@@ -440,17 +464,17 @@ export function createGhost(id, quality) {
       // Eyes track the direction of travel, in the projected top-down sense.
       const d = DIRECTIONS[g.eyeDir ?? g.dir] ?? DIRECTIONS.left;
       for (const part of eyeParts) {
-        part.pupil.position.x = part.side * 0.155 + d.x * 0.052;
-        part.pupil.position.y = 0.115 - d.y * 0.05;
-        part.pupil.position.z = 0.36 - Math.abs(d.y) * 0.02;
+        part.pupil.position.x = part.side * 0.168 + d.x * 0.055;
+        part.pupil.position.y = 0.125 - d.y * 0.055;
+        part.pupil.position.z = 0.395 - Math.abs(d.y) * 0.02;
       }
 
       const bob = Math.sin(time * 5.5 + phase * 0.1) * 0.02;
       root.position.y = GHOST_Y + bob;
 
       if (g.frightened) {
-        // Flash white in the final second of the power pellet.
-        const flashing = frightRatio < 0.28 && Math.sin(time * 22) > 0;
+        // `flashing` comes from the simulation's fixed flash window, so the
+        // number of blinks matches the arcade at every level.
         bodyMat.color.copy(flashing ? flashColour : frightColour);
         bodyMat.emissive.copy(flashing ? flashColour : frightColour);
         bodyMat.emissiveIntensity = flashing ? 1.1 : 0.85;
@@ -477,11 +501,27 @@ export function createGhost(id, quality) {
 
 export function createPellets(maze, quality) {
   const list = maze.pelletsInitial.filter((p) => !p.energizer);
-  const geo = new THREE.SphereGeometry(0.082, quality.pelletSegments, quality.pelletSegments);
+  const geo = new THREE.SphereGeometry(0.15, quality.pelletSegments + 2, quality.pelletSegments);
   const mat = new THREE.MeshBasicMaterial({ color: PALETTE.pellet, toneMapped: false });
   const mesh = new THREE.InstancedMesh(geo, mat, list.length);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.frustumCulled = false;
+
+  // Halo pass: the same instances, scaled up and additive, so each dot reads as
+  // a glowing orb rather than a flat disc once bloom gets hold of it.
+  const haloGeo = new THREE.SphereGeometry(0.15, 8, 6);
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: 0xffd873,
+    transparent: true,
+    opacity: 0.1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const halo = new THREE.InstancedMesh(haloGeo, haloMat, list.length);
+  halo.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  halo.frustumCulled = false;
+  halo.renderOrder = 6;
 
   const state = list.map((p) => ({ ...p, eaten: false, pop: 0 }));
   const dummy = new THREE.Object3D();
@@ -507,13 +547,17 @@ export function createPellets(maze, quality) {
         scale = 0.86 + 0.14 * Math.sin(time * 4.5 + (s.x + s.y) * 0.9);
       }
 
-      dummy.position.set(worldX(s.x), 0.22 + (s.eaten ? (1 - s.pop) * 0.4 : 0), worldZ(s.y));
+      dummy.position.set(worldX(s.x), 0.2 + (s.eaten ? (1 - s.pop) * 0.4 : 0), worldZ(s.y));
       dummy.scale.setScalar(scale);
       dummy.rotation.set(0, time * 0.6 + s.x, 0);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
+      dummy.scale.multiplyScalar(1.9);
+      dummy.updateMatrix();
+      halo.setMatrixAt(i, dummy.matrix);
     }
     mesh.instanceMatrix.needsUpdate = true;
+    halo.instanceMatrix.needsUpdate = true;
   };
 
   const reset = () => {
@@ -523,7 +567,7 @@ export function createPellets(maze, quality) {
     }
   };
 
-  return { mesh, sync, reset };
+  return { mesh, halo, sync, reset };
 }
 
 /* ------------------------------------------------------------------ energizers */
@@ -534,7 +578,7 @@ export function createEnergizers(maze, quality) {
   const mat = new THREE.MeshBasicMaterial({ color: PALETTE.energizer, toneMapped: false });
   const items = list.map((p) => {
     const holder = new THREE.Group();
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 22, 18), mat);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 20), mat);
     holder.add(core);
     const halo = glowSprite(0xfff0a0, 2.2, 0.7);
     holder.add(halo);
@@ -565,6 +609,9 @@ export function createEnergizers(maze, quality) {
 
   return {
     group,
+    setLights(on) {
+      for (const it of items) if (it.light) it.light.visible = on;
+    },
     sync(time) {
       for (const it of items) {
         const alive = maze.pelletAt(it.tile.x, it.tile.y) !== 0;
@@ -719,11 +766,80 @@ export function createFruitFactory() {
     if (!cache.has(id)) {
       const builder = FRUIT_BUILDERS[id] ?? FRUIT_BUILDERS.cherry;
       const model = builder();
-      const halo = glowSprite(0xffffff, 2.0, 0.35);
+      // The fruit is only on the board for nine seconds, on a tile with no dots
+      // to draw the eye, so it is scaled up and given its own halo.
+      model.scale.setScalar(1.7);
+      const halo = glowSprite(0xffffff, 3.0, 0.5);
       model.add(halo);
       cache.set(id, model);
     }
     return cache.get(id);
+  };
+}
+
+/**
+ * Standing furniture that appears with any fruit: a pulsing pedestal ring on the
+ * floor and a soft column of light above it, so a fruit spawn is visible from
+ * anywhere on the board.
+ */
+export function createFruitAura() {
+  const group = new THREE.Group();
+
+  const ringGeo = new THREE.RingGeometry(0.42, 0.62, 44);
+  ringGeo.rotateX(-Math.PI / 2);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xffe27a,
+    transparent: true,
+    opacity: 0.6,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  group.add(ring);
+
+  const beamGeo = new THREE.CylinderGeometry(0.34, 0.62, 3.4, 20, 1, true);
+  beamGeo.translate(0, 1.7, 0);
+  const beamMat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+    uniforms: { colour: { value: new THREE.Color(0xffd76a) }, time: { value: 0 } },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      precision highp float;
+      varying vec2 vUv;
+      uniform vec3 colour;
+      uniform float time;
+      void main() {
+        float fade = pow(1.0 - vUv.y, 2.0);
+        float edge = sin(vUv.x * 3.14159);
+        float a = fade * edge * (0.16 + 0.05 * sin(time * 3.0));
+        gl_FragColor = vec4(colour * a * 2.0, a);
+      }
+    `,
+  });
+  const beam = new THREE.Mesh(beamGeo, beamMat);
+  group.add(beam);
+
+  return {
+    group,
+    update(time) {
+      const beat = 0.5 + 0.5 * Math.sin(time * 3.4);
+      ring.scale.setScalar(0.9 + beat * 0.25);
+      ring.rotation.y = time * 0.9;
+      ringMat.opacity = 0.35 + beat * 0.4;
+      beamMat.uniforms.time.value = time;
+    },
   };
 }
 
@@ -733,22 +849,25 @@ const popupCache = new Map();
 
 function popupTexture(text) {
   if (popupCache.has(text)) return popupCache.get(text);
-  const w = 256;
-  const h = 128;
+  const w = 512;
+  const h = 256;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, w, h);
-  ctx.font = 'bold 74px "Trebuchet MS", "Segoe UI", sans-serif';
+  ctx.font = 'bold 150px "Trebuchet MS", "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  // A dark stroke under a saturated cyan fill: a white core with a wide glow
+  // was simply eaten by bloom and read as a featureless smear.
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 16;
+  ctx.strokeStyle = 'rgba(6, 0, 24, 0.92)';
+  ctx.strokeText(text, w / 2, h / 2);
   ctx.shadowColor = '#00e9ff';
-  ctx.shadowBlur = 26;
-  ctx.fillStyle = '#bff6ff';
-  ctx.fillText(text, w / 2, h / 2);
-  ctx.shadowBlur = 8;
-  ctx.fillStyle = '#ffffff';
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = '#7ef0ff';
   ctx.fillText(text, w / 2, h / 2);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -768,7 +887,7 @@ export function createPopupPool(size = 8) {
     });
     const sprite = new THREE.Sprite(mat);
     sprite.visible = false;
-    sprite.scale.set(1.7, 0.85, 1);
+    sprite.scale.set(2.6, 1.3, 1);
     group.add(sprite);
     sprites.push(sprite);
   }
@@ -792,7 +911,7 @@ export function createPopupPool(size = 8) {
         }
         s.position.set(worldX(p.x), 0.7 + t * 1.5, worldZ(p.y));
         s.material.opacity = 1 - t * t;
-        s.scale.set(1.7 + t * 0.6, 0.85 + t * 0.3, 1);
+        s.scale.set(2.6 + t * 0.8, 1.3 + t * 0.4, 1);
       }
     },
   };

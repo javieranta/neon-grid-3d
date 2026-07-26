@@ -20,10 +20,14 @@ export const PALETTE = {
   sunCore: 0xffeab4,
 
   // Maze.
-  wallBody: 0x0b0620,
-  wallBodyDeep: 0x07031a,
-  neonNear: 0xff2bd6, // magenta at the near (bottom) edge of the maze
-  neonFar: 0x3df2ff, // cyan at the far (top) edge
+  wallBody: 0x06050e,
+  wallBodyDeep: 0x030208,
+  // Every wall carries both hues, as in the reference art: cyan traces the
+  // silhouette, magenta runs the inset partner line.
+  neonCyan: 0x28d9ff,
+  neonMagenta: 0xff2bd6,
+  neonNear: 0xff2bd6,
+  neonFar: 0x28d9ff,
   neonAccent: 0x9b5cff,
   gateColour: 0xffc4f0,
 
@@ -36,8 +40,8 @@ export const PALETTE = {
   pac: 0xffe14d,
   pacDeep: 0xffb300,
   pacMouth: 0x3a1a00,
-  pellet: 0xffe9c4,
-  energizer: 0xfff2b0,
+  pellet: 0xffc12e,
+  energizer: 0xffd23a,
 
   frightened: 0x2b3cff,
   frightenedFlash: 0xf2f8ff,
@@ -49,9 +53,12 @@ export const PALETTE = {
 };
 
 /** Height of the neon wall blocks. */
-export const WALL_HEIGHT = 1.0;
+// Low neon kerbs rather than full-height walls: at the game's camera angle a
+// tile-tall wall occludes more than a tile of floor behind it, which made whole
+// runs of pellets look unreachable even though they never were.
+export const WALL_HEIGHT = 0.46;
 /** Radius of the neon tube that traces every wall edge. */
-export const TUBE_RADIUS = 0.052;
+export const TUBE_RADIUS = 0.075;
 
 /** Maze -> world space. The maze is centred on the origin, lying in XZ. */
 export const ORIGIN_X = (MAZE_W - 1) / 2; // 13.5

@@ -9,8 +9,9 @@
 
 import * as THREE from 'three';
 import { PALETTE } from './palette.js';
+import { mergeGeometries } from './mazeMesh.js';
 
-const SUN_DIR = new THREE.Vector3(0.02, 0.10, -1).normalize();
+const SUN_DIR = new THREE.Vector3(0.015, 0.135, -1).normalize();
 
 /* ------------------------------------------------------------------ sky dome */
 
@@ -53,8 +54,8 @@ const skyFrag = /* glsl */ `
     float disc = 1.0 - smoothstep(0.098, 0.109, d);
     float sunH = (dir.y - sunDir.y) * 42.0;      // local vertical inside the disc
     // Bands: thin near the top of the disc, thickening toward the bottom.
-    float band = smoothstep(0.40, 0.60, fract(sunH * 0.58));
-    float bandMask = mix(1.0, band, clamp(-sunH * 0.19 + 0.04, 0.0, 1.0));
+    float band = smoothstep(0.46, 0.54, fract(sunH * 0.30));
+    float bandMask = mix(1.0, band, clamp(-sunH * 0.13 + 0.92, 0.0, 1.0));
     float core = 1.0 - smoothstep(0.0, 0.075, d);
     vec3 sunCol = mix(cSun, cSunCore, core * 0.55);
     // Kept just under clipping so the bands stay legible instead of fusing
@@ -270,6 +271,199 @@ function buildMountainRange(seed, width, height, z, colour, rimColour, rimIntens
   return group;
 }
 
+/* --------------------------------------------------------------------- palms */
+
+/**
+ * Low-poly palm silhouette: a leaning trunk of stacked segments plus drooping
+ * fronds. Rendered as a flat near-black shape with an additive magenta rim, so
+ * it reads as a backlit cut-out the way the reference art does.
+ */
+function buildPalm(seed, height) {
+  const rand = (i) => {
+    const v = Math.sin(i * 91.7 + seed * 47.3) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  // Parts are collected rather than added: a palm assembled from ~38 separate
+  // meshes cost 38 draw calls, and the grove alone was 450. Each palm is baked
+  // into one body mesh and one rim mesh at the end.
+  const bodyParts = [];
+  const rimParts = [];
+  const stamp = (geo, pos, rot, scale, into) => {
+    const g = geo.clone();
+    const m = new THREE.Matrix4().compose(
+      pos,
+      new THREE.Quaternion().setFromEuler(rot),
+      scale
+    );
+    g.applyMatrix4(m);
+    into.push(g);
+  };
+  const group = new THREE.Group();
+  const dark = new THREE.MeshBasicMaterial({ color: 0x08010f, toneMapped: false, fog: false });
+  const rim = new THREE.MeshBasicMaterial({
+    color: 0xff3ad0,
+    toneMapped: false,
+    transparent: true,
+    opacity: 0.34,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.BackSide,
+    fog: false,
+  });
+
+  const segments = 5;
+  const lean = (rand(1) - 0.5) * 0.5;
+  let y = 0;
+  const ONE = new THREE.Vector3(1, 1, 1);
+  for (let i = 0; i < segments; i++) {
+    const t = i / segments;
+    const segH = height / segments;
+    const r0 = 0.3 * (1 - t * 0.5);
+    const r1 = 0.3 * (1 - (t + 1 / segments) * 0.5);
+    const geo = new THREE.CylinderGeometry(r1, r0, segH, 7);
+    const pos = new THREE.Vector3(lean * t * t * height * 0.5, y + segH / 2, 0);
+    const rot = new THREE.Euler(0, 0, -lean * t * 0.55);
+    stamp(geo, pos, rot, ONE, bodyParts);
+    stamp(geo, pos, rot, new THREE.Vector3(1.18, 1.0, 1.18), rimParts);
+    geo.dispose();
+    y += segH;
+  }
+
+  const crown = new THREE.Vector3(lean * height * 0.5, height, 0);
+  const fronds = 9;
+  for (let i = 0; i < fronds; i++) {
+    const a = (i / fronds) * Math.PI * 2 + rand(i + 7) * 0.5;
+    // Kept well short of the trunk height: fronds as long as the tree drooped
+    // past its own base and the silhouette read as a spider.
+    const len = height * (0.34 + rand(i + 20) * 0.14);
+    // Two straight blades hinged mid-span give the arc a palm needs: out and
+    // slightly up from the crown, then a gentle droop at the tip.
+    const outer = Math.PI * 0.5 - 0.16 + rand(i + 33) * 0.16;
+    const droop = outer + 0.5 + rand(i + 51) * 0.22;
+    let anchor = crown.clone();
+    for (const [seg, angle, width] of [
+      [0.58, outer, 0.24],
+      [0.42, droop, 0.16],
+    ]) {
+      const segLen = len * seg;
+      const geo = new THREE.CylinderGeometry(segLen * width * 0.4, segLen * width, segLen, 4, 1, true);
+      geo.translate(0, segLen / 2, 0);
+      const rot = new THREE.Euler(angle, a, 0, 'YXZ');
+      stamp(geo, anchor.clone(), rot, new THREE.Vector3(1, 1, 0.42), bodyParts);
+      stamp(geo, anchor.clone(), rot, new THREE.Vector3(1.14, 1.0, 0.5), rimParts);
+      const dir = new THREE.Vector3(0, 1, 0).applyEuler(rot);
+      anchor = anchor.clone().add(dir.multiplyScalar(segLen));
+      geo.dispose();
+    }
+  }
+
+  const body = mergeGeometries(bodyParts);
+  const rims = mergeGeometries(rimParts);
+  bodyParts.forEach((g) => g.dispose());
+  rimParts.forEach((g) => g.dispose());
+  group.add(new THREE.Mesh(body, dark), new THREE.Mesh(rims, rim));
+  return group;
+}
+
+function buildPalmGrove() {
+  const grove = new THREE.Group();
+  // Ringed around the plinth, denser toward the sunset so they silhouette.
+  // Pushed out beyond the plinth so the crowns frame the board rather than
+  // crowding into the top of the shot.
+  const spots = [
+    [-38, -20, 9], [-45, 6, 8], [-34, 30, 7], [38, -22, 8.5],
+    [46, 4, 9.5], [33, 29, 7.5], [-20, -42, 8], [19, -44, 9],
+    [-56, -12, 10.5], [54, -14, 9.5], [-62, 20, 8], [60, 22, 8.5],
+  ];
+  spots.forEach(([x, z, h], i) => {
+    const palm = buildPalm(i * 3.1 + 1, h);
+    palm.position.set(x, 0, z);
+    palm.rotation.y = i * 1.7;
+    grove.add(palm);
+  });
+  return grove;
+}
+
+/* ----------------------------------------------------------- wireframe ridges */
+
+/**
+ * Faceted mountain range drawn as a dark fill plus glowing wireframe edges - the
+ * signature synthwave backdrop. Deliberately low segment counts so the facets
+ * are large and legible from a distance.
+ */
+function buildWireRidge(seed, width, height, z, colour, peaks) {
+  const segments = 26;
+  const profile = ridgeProfile(seed, segments, height, 0.42, peaks);
+  const positions = [];
+  const lines = [];
+  for (let i = 0; i < segments; i++) {
+    const x0 = -width / 2 + (i / segments) * width;
+    const x1 = -width / 2 + ((i + 1) / segments) * width;
+    const y0 = profile[i];
+    const y1 = profile[i + 1];
+    positions.push(x0, y0, 0, x0, 0, 0, x1, y1, 0);
+    positions.push(x1, y1, 0, x0, 0, 0, x1, 0, 0);
+    // Crest, plus a vertical rib every other facet.
+    lines.push(x0, y0, 0.2, x1, y1, 0.2);
+    if (i % 2 === 0) lines.push(x0, y0, 0.2, x0, 0, 0.2);
+  }
+  const fill = new THREE.Mesh(
+    new THREE.BufferGeometry().setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(positions, 3)
+    ),
+    new THREE.MeshBasicMaterial({ color: 0x05000d, toneMapped: false, fog: false })
+  );
+  const wire = new THREE.LineSegments(
+    new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(lines, 3)),
+    new THREE.LineBasicMaterial({
+      color: colour,
+      transparent: true,
+      opacity: 0.85,
+      toneMapped: false,
+      fog: false,
+    })
+  );
+  const group = new THREE.Group();
+  group.add(fill, wire);
+  group.position.z = z;
+  return group;
+}
+
+function buildPyramids() {
+  const group = new THREE.Group();
+  const spots = [
+    [-52, -120, 16, 0x28d9ff],
+    [46, -108, 13, 0xff2bd6],
+    [8, -132, 20, 0x28d9ff],
+    [-96, -128, 18, 0xff2bd6],
+  ];
+  for (const [x, z, h, colour] of spots) {
+    const geo = new THREE.ConeGeometry(h * 0.85, h, 4);
+    geo.translate(0, h / 2, 0);
+    const fill = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({ color: 0x04000a, toneMapped: false, fog: false })
+    );
+    const wire = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({
+        color: colour,
+        transparent: true,
+        opacity: 0.75,
+        toneMapped: false,
+        fog: false,
+      })
+    );
+    const holder = new THREE.Group();
+    holder.add(fill, wire);
+    holder.position.set(x, 0, z);
+    holder.rotation.y = Math.PI / 4;
+    group.add(holder);
+  }
+  return group;
+}
+
 /* --------------------------------------------------------------------- motes */
 
 function buildMotes(count = 900) {
@@ -389,6 +583,18 @@ export function createEnvironment(scene, renderer, quality, camera) {
 
   // Two ridges, close enough to appear above the ground line on the low
   // cinematic sweeps where the sunset comes into frame.
+  const grove = buildPalmGrove();
+  scene.add(grove);
+
+  const wireRidges = [
+    buildWireRidge(2.9, 320, 17, -92, 0x28d9ff, 7),
+    buildWireRidge(6.1, 440, 24, -128, 0xff2bd6, 9),
+  ];
+  wireRidges.forEach((r) => scene.add(r));
+
+  const pyramids = buildPyramids();
+  scene.add(pyramids);
+
   const ranges = [
     buildMountainRange(1.7, 700, 18, -150, PALETTE.mountains, PALETTE.mountainRim, 0.6, 9),
     buildMountainRange(4.3, 520, 10, -104, 0x0d0224, 0x00e9ff, 0.38, 6),
@@ -398,10 +604,9 @@ export function createEnvironment(scene, renderer, quality, camera) {
   const motes = quality.motes ? buildMotes(quality.motes) : null;
   if (motes) scene.add(motes);
 
-  const shafts = quality.shafts
-    ? buildLightShafts([PALETTE.neonNear, 0x00e9ff, PALETTE.neonNear])
-    : null;
-  if (shafts) scene.add(shafts);
+  // Volumetric shafts are deliberately not built: seen close to end-on from a
+  // top-down camera they pile additive alpha into a flat wash over the board.
+  const shafts = null;
 
   // Environment map for the metallic maze, baked once from the sky shader.
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -416,7 +621,9 @@ export function createEnvironment(scene, renderer, quality, camera) {
   pmrem.dispose();
 
   // Lighting rig: warm sun for rim light, cool hemisphere for fill.
-  const sun = new THREE.DirectionalLight(0xff9ad8, 1.05);
+  // A dim sun only: at full strength its specular lobe collapsed into a hot
+  // spot on the glossy wall tops. The maze is lit by its own neon.
+  const sun = new THREE.DirectionalLight(0xff9ad8, 0.34);
   sun.position.copy(SUN_DIR).multiplyScalar(60);
   sun.position.y = Math.abs(sun.position.y) + 34;
   sun.castShadow = quality.shadows;
@@ -436,11 +643,11 @@ export function createEnvironment(scene, renderer, quality, camera) {
   scene.add(sun);
   scene.add(sun.target);
 
-  const hemi = new THREE.HemisphereLight(0x8a3cff, 0x120026, 0.34);
+  const hemi = new THREE.HemisphereLight(0x8a3cff, 0x120026, 0.42);
   scene.add(hemi);
 
   // A cool key light from above keeps the neon readable against the floor.
-  const key = new THREE.DirectionalLight(0x7fe9ff, 0.34);
+  const key = new THREE.DirectionalLight(0x7fe9ff, 0.12);
   key.position.set(-12, 30, 14);
   scene.add(key);
 
@@ -450,14 +657,21 @@ export function createEnvironment(scene, renderer, quality, camera) {
 
   return {
     sun,
+    /** Tier downgrades need to actually remove cost, not just dim it. */
+    setMotes(on) {
+      if (motes) motes.visible = on;
+    },
+    setShafts(on) {
+      if (shafts) shafts.visible = on;
+    },
     update(time) {
       // Keeping the dome centred on the camera makes vDir an exact view ray,
       // so the sun disc never skews as the camera moves.
       if (camera) sky.position.copy(camera.position);
       sky.material.uniforms.time.value = time;
       grid.material.uniforms.time.value = time;
-      if (motes) motes.material.uniforms.time.value = time;
-      if (shafts) {
+      if (motes && motes.visible) motes.material.uniforms.time.value = time;
+      if (shafts && shafts.visible) {
         shafts.rotation.y = Math.sin(time * 0.06) * 0.22;
         shafts.children.forEach((c, i) => {
           c.material.uniforms.time.value = time;

@@ -48,7 +48,9 @@ const GAME_OVER_TIME = 3.4;
 
 /** Small deterministic PRNG so replays and tests behave identically. */
 export function makeRng(seed = 0x2f6e2b1) {
-  let s = seed >>> 0;
+  // Zero is a fixed point for xorshift: it would return 0 forever, which would
+  // silently pin every frightened ghost to the first legal direction.
+  let s = (seed >>> 0) || 0x2f6e2b1;
   return function rng() {
     s ^= s << 13;
     s >>>= 0;
@@ -85,7 +87,16 @@ export function createGame(options = {}) {
     waveTimer: 0,
     frightTimer: 0,
     frightTotal: 0,
+    /**
+     * Seconds of fright remaining during which the ghosts blink white. The
+     * arcade spends a FIXED number of blink cycles (~0.467s each) at the end of
+     * every power pellet regardless of its total duration, so this is derived
+     * from the level's flash count, not from a fraction of the timer.
+     */
+    frightFlashSeconds: 0,
+    frightFlashPeriod: 28 / 60,
     globalDotCounter: -1,
+    elroySuspended: false,
     releaseTimer: 0,
     munchStall: 0,
     fruit: null,
@@ -145,7 +156,10 @@ export function createGame(options = {}) {
     game.ghosts.clyde.dotLimit = limits.clyde;
     for (const id of GHOST_ORDER) game.ghosts[id].dotCounter = 0;
     game.globalDotCounter = respawn ? 0 : -1;
-    if (!respawn) updateElroy(game.ghosts.blinky, maze, game.cfg);
+    // After a death the arcade suspends Cruise Elroy until the last ghost has
+    // left the house, rather than restoring him on the very next dot.
+    game.elroySuspended = respawn;
+    updateElroy(game.ghosts.blinky, maze, game.cfg, game.elroySuspended);
   }
 
   game.startGame = () => {
@@ -192,6 +206,11 @@ export function createGame(options = {}) {
   // -------------------------------------------------------------------- ghosts
 
   function ghostRelease(dt) {
+    if (game.elroySuspended && game.ghosts.clyde.state !== 'house') {
+      game.elroySuspended = false;
+      updateElroy(game.ghosts.blinky, maze, game.cfg, false);
+    }
+
     // A ghost leaves when its personal dot counter is met, or when the global
     // counter (active after a death) reaches its threshold, or on a timeout.
     game.releaseTimer += dt;
@@ -291,7 +310,7 @@ export function createGame(options = {}) {
       maze.eatPellet(t.x, t.y);
       game.dotsEaten++;
       countDot();
-      updateElroy(game.ghosts.blinky, maze, game.cfg);
+      updateElroy(game.ghosts.blinky, maze, game.cfg, game.elroySuspended);
 
       if (pellet === TILE.ENERGIZER) {
         addScore(SCORE.energizer);
@@ -300,6 +319,10 @@ export function createGame(options = {}) {
         const seconds = game.cfg.frightSeconds;
         game.frightTotal = seconds;
         game.frightTimer = seconds;
+        game.frightFlashSeconds = Math.min(
+          seconds,
+          game.cfg.frightFlashes * game.frightFlashPeriod
+        );
         if (seconds > 0) {
           for (const id of GHOST_ORDER) frighten(game.ghosts[id], seconds);
         } else {

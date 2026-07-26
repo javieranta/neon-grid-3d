@@ -26,7 +26,6 @@ import {
   SCATTER_TARGETS,
   SPAWN,
   TILE,
-  deltaX,
 } from './maze.js';
 import { FULL_SPEED_TPS } from './levels.js';
 
@@ -114,10 +113,14 @@ export function targetTile(g, ctx) {
 
     case 'clyde': {
       if (scattering) return scatter;
-      const dx = deltaX(g.x, pacman.x);
-      const dy = pacman.y - g.y;
-      const far = dx * dx + dy * dy > 64;
-      return far ? pt : scatter;
+      // Tile centres and raw deltas, switching at exactly eight tiles. Using
+      // continuous positions moved the boundary by up to half a tile, and a
+      // wrapped delta made him retreat when the two were in opposite tunnel
+      // mouths — twenty tiles apart in arcade terms.
+      const ct = tileOf(g);
+      const dx = pt.x - ct.x;
+      const dy = pt.y - ct.y;
+      return dx * dx + dy * dy >= 64 ? pt : scatter;
     }
 
     default:
@@ -153,7 +156,18 @@ export function chooseDirection(g, maze, target, rng) {
   if (options.length === 0) return back;
   if (options.length === 1) return options[0];
 
-  if (g.frightened) return options[Math.floor(rng() * options.length) % options.length];
+  if (g.frightened) {
+    // The arcade draws a random index into [up, left, down, right] and walks
+    // forward until it finds a legal exit, which biases the distribution (the
+    // direction after an illegal one gets picked twice as often). A uniform pick
+    // over the legal set is subtly wrong at three-way junctions.
+    const start = Math.floor(rng() * 4) % 4;
+    for (let i = 0; i < 4; i++) {
+      const name = DIR_ORDER[(start + i) % 4];
+      if (options.includes(name)) return name;
+    }
+    return options[0];
+  }
 
   let best = options[0];
   let bestDist = Infinity;
@@ -161,7 +175,12 @@ export function chooseDirection(g, maze, target, rng) {
     const d = DIRECTIONS[name];
     const nx = t.x + d.x;
     const ny = t.y + d.y;
-    const dx = deltaX(nx, target.x);
+    // Raw tile deltas, deliberately NOT wrapped through the tunnel: the arcade's
+    // metric treats the maze as flat, so the side tunnel is never a shortcut in
+    // the AI's eyes. Wrapping here collapses the scatter corners (Blaze ends up
+    // camping in Violet's corner) and makes ghosts walk away from Pac-Man near
+    // the maze edges.
+    const dx = target.x - nx;
     const dy = target.y - ny;
     const dist = dx * dx + dy * dy;
     if (dist < bestDist) {
@@ -179,8 +198,10 @@ export function ghostSpeed(g, maze, cfg) {
   if (g.state === 'eaten') frac = 1.6;
   else if (g.state === 'entering') frac = 1.2;
   else if (g.state === 'leaving') frac = 0.55;
-  else if (g.frightened) frac = cfg.ghostFright;
+  // The tunnel slows every state except the returning eyes, so it is tested
+  // ahead of the frightened speed (Cruise Elroy already resolved this way).
   else if (maze.isTunnel(t.x, t.y)) frac = cfg.tunnel;
+  else if (g.frightened) frac = cfg.ghostFright;
   else if (g.id === 'blinky' && g.elroy === 2) frac = cfg.elroy2Speed;
   else if (g.id === 'blinky' && g.elroy === 1) frac = cfg.elroy1Speed;
   else frac = cfg.ghost;
@@ -336,9 +357,17 @@ function followWaypoints(g, dt, speed, onDone) {
   if (g.waypoints.length === 0) onDone();
 }
 
-/** Blinky's rage thresholds, recomputed whenever pellets are eaten. */
-export function updateElroy(g, maze, cfg) {
+/**
+ * Blinky's rage thresholds, recomputed whenever pellets are eaten. After a life
+ * is lost the arcade suspends Elroy until the last ghost has left the house, so
+ * the caller passes that state in rather than restoring him on the next dot.
+ */
+export function updateElroy(g, maze, cfg, suspended = false) {
   if (g.id !== 'blinky') return;
+  if (suspended) {
+    g.elroy = 0;
+    return;
+  }
   const left = maze.remaining;
   if (left <= cfg.elroy2Dots) g.elroy = 2;
   else if (left <= cfg.elroy1Dots) g.elroy = 1;

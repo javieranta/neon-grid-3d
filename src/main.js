@@ -178,7 +178,7 @@ function boot() {
     onPause: togglePause,
     onCamera: () => {
       const mode = view.cycleCameraMode();
-      hud.showToast(`CAMERA — ${mode.toUpperCase()}`, 1.4);
+      hud.showToast(`CAMERA — ${mode.replace(/([A-Z])/g, ' $1').toUpperCase()}`, 1.4);
       audio.ui();
     },
     onSound: () => {
@@ -200,7 +200,7 @@ function boot() {
   input.bindButton(document.getElementById('btn-pause'), togglePause);
   input.bindButton(document.getElementById('btn-camera'), () => {
     const mode = view.cycleCameraMode();
-    hud.showToast(`CAMERA — ${mode.toUpperCase()}`, 1.4);
+    hud.showToast(`CAMERA — ${mode.replace(/([A-Z])/g, ' $1').toUpperCase()}`, 1.4);
   });
   input.bindButton(document.getElementById('btn-sound'), () => {
     const on = audio.toggle();

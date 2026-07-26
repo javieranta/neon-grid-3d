@@ -22,6 +22,11 @@ import { PALETTE, TUBE_RADIUS, WALL_HEIGHT } from './palette.js';
 const CORNER_RADIUS = 0.26;
 
 /* ------------------------------------------------------- boundary extraction */
+/*
+ * The tracing helpers below are exported at the bottom of this file purely so
+ * the test suite can verify that the rendered wall silhouettes agree with the
+ * logical grid - i.e. that no collectible ends up inside a wall.
+ */
 
 /** Corner-grid coords -> shape space (shape.y maps to -worldZ). */
 const sx = (cx) => cx - 14;
@@ -362,7 +367,8 @@ function bakeGlowMap(loopsInShapeSpace, size = 1024) {
 export function buildMaze(maze, quality) {
   const comps = wallComponents(maze.tiles);
   const slabGeos = [];
-  const topTubeGeos = [];
+  const cyanTubeGeos = [];
+  const magentaTubeGeos = [];
   const baseTubeGeos = [];
   const glowLoops = [];
 
@@ -388,8 +394,8 @@ export function buildMaze(maze, quality) {
     const slab = new THREE.ExtrudeGeometry(shape, {
       depth: WALL_HEIGHT,
       bevelEnabled: true,
-      bevelThickness: 0.055,
-      bevelSize: 0.05,
+      bevelThickness: 0.04,
+      bevelSize: 0.045,
       bevelSegments: quality.bevelSegments,
       curveSegments: 4,
     });
@@ -398,18 +404,19 @@ export function buildMaze(maze, quality) {
 
     for (const loop of [outerOriented, ...holesOriented]) {
       const poly = roundedPolyline(loop, CORNER_RADIUS, quality.tubeArcSegments);
-      topTubeGeos.push(tubeFromPolyline(poly, WALL_HEIGHT + 0.012, TUBE_RADIUS, quality.tubeRadial));
-      // Inset partner line, the other half of the arcade's piped wall.
-      const inner = offsetPolyline(poly, 0.185);
-      topTubeGeos.push(
-        tubeFromPolyline(inner, WALL_HEIGHT + 0.012, TUBE_RADIUS * 0.72, quality.tubeRadial)
+      // Cyan on the silhouette, magenta on the inset partner line: both hues on
+      // every wall, which is what gives the reference art its electric read.
+      cyanTubeGeos.push(
+        tubeFromPolyline(poly, WALL_HEIGHT + 0.02, TUBE_RADIUS, quality.tubeRadial)
+      );
+      const inner = offsetPolyline(poly, 0.235);
+      magentaTubeGeos.push(
+        tubeFromPolyline(inner, WALL_HEIGHT + 0.02, TUBE_RADIUS * 0.86, quality.tubeRadial)
       );
       baseTubeGeos.push(
-        tubeFromPolyline(poly, 0.055, TUBE_RADIUS * 0.66, Math.max(4, quality.tubeRadial - 2))
+        tubeFromPolyline(poly, 0.07, TUBE_RADIUS * 0.7, Math.max(4, quality.tubeRadial - 2))
       );
-      // Average depth decides which end of the gradient the glow map uses.
-      const avgZ = poly.reduce((s, p) => s - p.y, 0) / poly.length;
-      glowLoops.push({ poly, near: avgZ > 0 });
+      glowLoops.push({ poly, near: false });
     }
   }
 
@@ -421,51 +428,81 @@ export function buildMaze(maze, quality) {
   };
 
   const slabGeo = merge(slabGeos);
-  const topTubeGeo = merge(topTubeGeos);
+  const cyanTubeGeo = merge(cyanTubeGeos);
+  const magentaTubeGeo = merge(magentaTubeGeos);
   const baseTubeGeo = merge(baseTubeGeos);
 
-  applyDepthGradient(topTubeGeo, PALETTE.neonNear, PALETTE.neonFar, 1.0);
-  applyDepthGradient(baseTubeGeo, PALETTE.neonNear, PALETTE.neonFar, 0.55);
-
   const panel = panelTexture();
+  // Glossy near-black acrylic: the reference walls are dark mirrors whose only
+  // colour comes from the neon they reflect. Roughness stays off zero so the sun
+  // in the environment map spreads into a sheen instead of a hot spot.
   const slabMat = new THREE.MeshPhysicalMaterial({
     color: PALETTE.wallBody,
-    // Deliberately rough: at mirror smoothness the sun in the environment map
-    // collapses into a blown-out hot spot on the flat wall tops. Spread out, the
-    // same reflection reads as brushed metal catching the sunset.
-    metalness: 0.85,
-    roughness: 0.44,
-    clearcoat: 0.55,
-    clearcoatRoughness: 0.38,
-    envMapIntensity: 0.42,
-    sheen: 0.4,
-    sheenColor: new THREE.Color(PALETTE.neonAccent),
+    metalness: 0.5,
+    roughness: 0.3,
+    clearcoat: 1,
+    clearcoatRoughness: 0.3,
+    // Kept low on purpose: the sun in the environment map is very bright, and at
+    // a higher weight it collapses into a blown-out highlight on the flat tops.
+    envMapIntensity: 0.14,
     emissiveMap: panel,
-    emissive: new THREE.Color(0xffffff),
-    emissiveIntensity: 0.5,
+    emissive: new THREE.Color(0x6a4bff),
+    emissiveIntensity: 0.07,
   });
 
-  const tubeMat = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    toneMapped: false,
-  });
+  // Light spill down the wall sides. In the reference art the black acrylic is
+  // lit from the neon running along its top edge, which no amount of ambient
+  // will reproduce, so a height-based emissive ramp is injected straight into
+  // the physical shader. Geometry y is already world height (the extrusion is
+  // rotated at build time), so the ramp needs no extra matrix work.
+  slabMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uRimLow = { value: new THREE.Color(0x0a0018) };
+    shader.uniforms.uRimHigh = { value: new THREE.Color(0x3a0f78) };
+    shader.uniforms.uWallHeight = { value: WALL_HEIGHT };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vWallY;\nvarying float vWallSide;')
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\n  vWallY = position.y;\n  vWallSide = 1.0 - abs(normal.y);'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying float vWallY;\nvarying float vWallSide;\nuniform vec3 uRimLow;\nuniform vec3 uRimHigh;\nuniform float uWallHeight;'
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\n  float rim = clamp(vWallY / uWallHeight, 0.0, 1.0);\n  totalEmissiveRadiance += mix(uRimLow, uRimHigh, rim) * pow(rim, 3.0) * vWallSide * 0.17;'
+      );
+  };
+
+  const cyanMat = new THREE.MeshBasicMaterial({ color: PALETTE.neonCyan, toneMapped: false });
+  const magentaMat = new THREE.MeshBasicMaterial({ color: PALETTE.neonMagenta, toneMapped: false });
   const baseTubeMat = new THREE.MeshBasicMaterial({
-    vertexColors: true,
+    color: PALETTE.neonMagenta,
     toneMapped: false,
     transparent: true,
-    opacity: 0.8,
+    opacity: 0.85,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
+
+
 
   const group = new THREE.Group();
   const slabMesh = new THREE.Mesh(slabGeo, slabMat);
   slabMesh.castShadow = quality.shadows;
   slabMesh.receiveShadow = quality.shadows;
   group.add(slabMesh);
-  const topTubeMesh = new THREE.Mesh(topTubeGeo, tubeMat);
+
+  const cyanMesh = new THREE.Mesh(cyanTubeGeo, cyanMat);
+  const magentaMesh = new THREE.Mesh(magentaTubeGeo, magentaMat);
   const baseTubeMesh = new THREE.Mesh(baseTubeGeo, baseTubeMat);
-  group.add(topTubeMesh, baseTubeMesh);
+  group.add(cyanMesh, magentaMesh, baseTubeMesh);
+
+  // No additive shells around the tubes: scaling a swept ring on one axis
+  // stretches it into tall soft ghosts that wash the whole frame from a low
+  // camera. Bloom supplies the halo, and it respects the geometry.
 
   // ------------------------------------------------------------- ghost gate
   const gateGeo = new THREE.BoxGeometry(1.9, 0.1, 0.16);
@@ -496,7 +533,7 @@ export function buildMaze(maze, quality) {
       edgeColour: { value: new THREE.Color(0x1a0536) },
       gridColour: { value: new THREE.Color(0x2a0d52) },
       span: { value: glow.span },
-      opacity: { value: quality.reflections ? 0.58 : 0.985 },
+      opacity: { value: quality.reflections ? 0.4 : 0.985 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -517,12 +554,13 @@ export function buildMaze(maze, quality) {
         // A faint rim of violet where the plinth meets the grid.
         vec3 c = mix(colour, edgeColour, smoothstep(0.7, 0.95, max(q.x, q.y)));
 
-        // One-unit lattice tying the maze floor into the horizon grid.
-        vec2 cell = vUv * span;
+        // Big wet tiles: dark grout between panels, and the panels themselves
+        // stay clearer so more of the reflection world shows through.
+        vec2 cell = vUv * span * 0.5;
         vec2 g = abs(fract(cell - 0.5) - 0.5) / max(fwidth(cell), vec2(1e-5));
-        float line = 1.0 - min(min(g.x, g.y), 1.0);
-        c += gridColour * line * 0.5 * (1.0 - fade);
-        a = clamp(a + line * 0.16 * (1.0 - fade), 0.0, 1.0);
+        float grout = 1.0 - min(min(g.x, g.y), 1.0);
+        c = mix(c, edgeColour * 0.5, grout * 0.85);
+        a = clamp(a + grout * 0.3 * (1.0 - fade), 0.0, 1.0);
 
         gl_FragColor = vec4(c, a);
       }
@@ -540,13 +578,47 @@ export function buildMaze(maze, quality) {
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    opacity: 0.42,
+    opacity: 0.14,
     toneMapped: false,
   });
   const floorGlow = new THREE.Mesh(glowGeo, glowMat);
   floorGlow.position.y = 0.004;
   floorGlow.renderOrder = 3;
   floorGroup.add(floorGlow);
+
+  // ------------------------------------------------------------- the platform
+  // The reference art stands the maze on a raised slab with a lit edge, which
+  // also hides the seam where the mirrored reflection world begins.
+  const PLINTH_H = 0.62;
+  const plinthW = MAZE_W + 1.6;
+  const plinthD = MAZE_H + 1.6;
+  const plinth = new THREE.Mesh(
+    new THREE.BoxGeometry(plinthW, PLINTH_H, plinthD),
+    new THREE.MeshPhysicalMaterial({
+      color: 0x04030a,
+      metalness: 0.6,
+      roughness: 0.22,
+      clearcoat: 1,
+      clearcoatRoughness: 0.14,
+      envMapIntensity: 0.35,
+    })
+  );
+  plinth.position.y = -PLINTH_H / 2 - 0.02;
+  floorGroup.add(plinth);
+
+  // Two hairline rules on the platform edge: magenta at the lip, cyan at the
+  // base. Thin is the point - a thick band reads as a solid slab of colour.
+  for (const [colour, y] of [
+    [PALETTE.neonMagenta, -0.05],
+    [PALETTE.neonCyan, -PLINTH_H + 0.12],
+  ]) {
+    const trim = new THREE.Mesh(
+      new THREE.BoxGeometry(plinthW + 0.03, 0.03, plinthD + 0.03),
+      new THREE.MeshBasicMaterial({ color: colour, toneMapped: false })
+    );
+    trim.position.y = y;
+    floorGroup.add(trim);
+  }
 
   if (quality.shadows) {
     const catcherGeo = new THREE.PlaneGeometry(glow.span, glow.span);
@@ -570,14 +642,14 @@ export function buildMaze(maze, quality) {
         roughness: 0.34,
         envMapIntensity: 0.8,
         transparent: true,
-        opacity: 0.62,
+        opacity: 0.8,
         side: THREE.DoubleSide,
       })
     );
     const mTube = new THREE.Mesh(
-      topTubeGeo,
+      cyanTubeGeo,
       new THREE.MeshBasicMaterial({
-        vertexColors: true,
+        color: PALETTE.neonCyan,
         toneMapped: false,
         transparent: true,
         opacity: 0.6,
@@ -589,7 +661,7 @@ export function buildMaze(maze, quality) {
     const mBase = new THREE.Mesh(
       baseTubeGeo,
       new THREE.MeshBasicMaterial({
-        vertexColors: true,
+        color: PALETTE.neonMagenta,
         toneMapped: false,
         transparent: true,
         opacity: 0.34,
@@ -598,7 +670,19 @@ export function buildMaze(maze, quality) {
         depthWrite: false,
       })
     );
-    mirror.add(mSlab, mTube, mBase);
+    const mTube2 = new THREE.Mesh(
+      magentaTubeGeo,
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.neonMagenta,
+        toneMapped: false,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    mirror.add(mSlab, mTube, mTube2, mBase);
     // Transparent draw order is renderOrder first, so the reflection is
     // guaranteed to land underneath the semi-transparent floor.
     mirror.children.forEach((c) => (c.renderOrder = -2));
@@ -612,24 +696,33 @@ export function buildMaze(maze, quality) {
     mirror,
     gate,
     componentCount: comps.length,
+    /**
+     * The floor is only part-transparent because there is a reflection world
+     * beneath it. If reflections are switched off the plinth has to become
+     * opaque, or it turns into a window onto the sky with nothing behind it.
+     */
+    setReflections(on) {
+      if (mirror) mirror.visible = on;
+      baseMat.uniforms.opacity.value = on ? 0.4 : 0.985;
+    },
     update(time, frightened) {
-      // Keep the tubes saturated: a near-white multiplier would wash the hue
-      // out once bloom lifts the cores.
-      const pulse = 0.92 + 0.08 * Math.sin(time * 2.1);
-      tubeMat.color.setScalar(pulse);
+      // Subtle breathing on the floor-level line only; touching the main tube
+      // colours would wash their hues out once bloom lifts the cores.
+      baseTubeMat.opacity = 0.72 + 0.14 * Math.sin(time * 2.1);
       gateMat.opacity = 0.55 + 0.35 * Math.sin(time * 3.4);
       if (frightened) {
         // Cool the whole maze down while an energizer is active.
-        slabMat.emissive.setHex(0x6a86ff);
-        slabMat.emissiveIntensity = 0.75 + 0.25 * Math.sin(time * 9);
+        slabMat.emissive.setHex(0x4b6dff);
+        slabMat.emissiveIntensity = 0.5 + 0.2 * Math.sin(time * 9);
       } else {
-        slabMat.emissive.setHex(0xffffff);
-        slabMat.emissiveIntensity = 0.5;
+        slabMat.emissive.setHex(0x6a4bff);
+        slabMat.emissiveIntensity = 0.07;
       }
     },
     dispose() {
       slabGeo.dispose();
-      topTubeGeo.dispose();
+      cyanTubeGeo.dispose();
+      magentaTubeGeo.dispose();
       baseTubeGeo.dispose();
       glow.texture.dispose();
       panel.dispose();
@@ -690,3 +783,7 @@ export function mergeGeometries(geometries) {
   out.computeBoundingSphere();
   return out;
 }
+
+/* ------------------------------------------------------------- test surface */
+
+export { wallComponents, traceLoops, roundedPolyline, offsetPolyline, sx, sy };
