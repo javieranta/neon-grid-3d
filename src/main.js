@@ -173,8 +173,19 @@ function boot() {
     audio.ui();
   }
 
+  // Screen-relative quarter turns: up is forward, right/left steer, down reverses.
+  const RELATIVE_TURNS = { up: 0, right: 1, down: 2, left: 3 };
+  const relativeCamera = () => view.cameraMode === 'chase' || view.cameraMode === 'firstPerson';
+
   const input = createInput(canvas, {
-    onDirection: (dir) => game.setDirection(dir),
+    onDirection: (dir) => {
+      // The close cameras rotate to sit behind Pac-Man, so compass input does not
+      // match what the player sees; steer relative to his heading instead. The
+      // overview does not rotate, so there the compass is correct.
+      if (relativeCamera()) game.steer(RELATIVE_TURNS[dir] ?? 0);
+      else game.setDirection(dir);
+    },
+    onSteer: (quarters) => game.steer(quarters),
     onStart: startOrResume,
     onPause: togglePause,
     onCamera: () => {
@@ -321,6 +332,12 @@ function boot() {
     input,
     STATE,
     setDirection: (d) => game.setDirection(d),
+    /** Goes through the same screen-relative mapping the keys and pad use. */
+    press: (d) => {
+      if (relativeCamera()) game.steer(RELATIVE_TURNS[d] ?? 0);
+      else game.setDirection(d);
+    },
+    steer: (q) => game.steer(q),
     start: () => {
       hud.hideTitle();
       game.startGame();

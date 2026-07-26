@@ -318,18 +318,17 @@ export function createRenderer(canvas, game, tierName) {
       desiredLook.set(0, 2.6 + sweep * 1.6, -6);
     } else if (cam.mode === 'chase') {
       const dirVec = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[pac.dir] ?? [-1, 0];
-      // Directly behind him, centred in the lane. Corridors are one tile wide, so
-      // any real lateral offset puts the camera inside the side wall - an earlier
-      // over-the-shoulder rig did exactly that and clipped through geometry. Eye
-      // height stays below the stretched corridor tops so the walls frame the shot
-      // instead of the camera looking out over the whole board.
+      // Raised enough to read the neighbouring lanes and plan a turn, but nowhere
+      // near high enough to show the whole board. Centred in the lane: corridors
+      // are one tile wide, so any real lateral offset puts the camera inside the
+      // side wall, which an earlier over-the-shoulder rig did.
       const perp = [-dirVec[1], dirVec[0]];
       desiredPos.set(
-        px - dirVec[0] * 2.7 + perp[0] * 0.13,
-        0.9,
-        pz - dirVec[1] * 2.7 + perp[1] * 0.13
+        px - dirVec[0] * 4.3 + perp[0] * 0.12,
+        3.0,
+        pz - dirVec[1] * 4.3 + perp[1] * 0.12
       );
-      desiredLook.set(px + dirVec[0] * 3.4, 0.46, pz + dirVec[1] * 3.4);
+      desiredLook.set(px + dirVec[0] * 2.2, 0.3, pz + dirVec[1] * 2.2);
       // Pac-Man teleports by a full maze width at the side tunnel; lerping
       // through that jump whip-pans the camera across the middle of the board,
       // through the walls, every time the player uses the tunnel.
@@ -495,7 +494,7 @@ export function createRenderer(canvas, game, tierName) {
     const fpv = cam.mode === 'firstPerson';
     // Kerb height only suits the overview. Any close camera looks straight over
     // the maze unless the walls come up, so chase gets the stretch too.
-    const stretchFor = { firstPerson: 3.1, chase: 3.1 };
+    const stretchFor = { firstPerson: 3.1, chase: 1.75 };
     mazeMesh.setStretch(stretchFor[cam.mode] ?? 1, dt);
 
     // The shell goes, the lamp stays: in first person Pac-Man's own point light

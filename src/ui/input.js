@@ -27,6 +27,7 @@ const SWIPE_MIN = 24; // px before a drag counts as a direction
 export function createInput(target, handlers) {
   const {
     onDirection = () => {},
+    onSteer = () => {},
     onStart = () => {},
     onPause = () => {},
     onCamera = () => {},
@@ -65,6 +66,16 @@ export function createInput(target, handlers) {
       case 'Escape':
         e.preventDefault();
         onPause();
+        break;
+      case 'KeyQ':
+        e.preventDefault();
+        onSteer(-1);
+        onStart();
+        break;
+      case 'KeyE':
+        e.preventDefault();
+        onSteer(1);
+        onStart();
         break;
       case 'KeyC':
         onCamera();
@@ -136,10 +147,16 @@ export function createInput(target, handlers) {
   }, { passive: false });
   target.addEventListener('touchcancel', endTouch, { passive: true });
 
-  // Mouse drag mirrors the swipe gesture so the same code path is testable.
-  target.addEventListener('mousedown', beginTouch);
-  window.addEventListener('mousemove', moveTouch);
-  window.addEventListener('mouseup', endTouch);
+  // Mouse steering: Pac-Man always moves, the buttons turn him. This replaces the
+  // old drag-as-swipe emulation, which would fight the same gesture.
+  target.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    onAnyInput();
+    onStart();
+    if (e.button === 2) onSteer(1);
+    else if (e.button === 0) onSteer(-1);
+  });
+  target.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Kill iOS gesture zoom and the double-tap-to-zoom delay.
   for (const evt of ['gesturestart', 'gesturechange', 'gestureend']) {
@@ -192,8 +209,6 @@ export function createInput(target, handlers) {
       if (disposed) return;
       disposed = true;
       window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('mousemove', moveTouch);
-      window.removeEventListener('mouseup', endTouch);
     },
   };
 }

@@ -203,6 +203,25 @@ export function createGame(options = {}) {
     game.pacman.desiredDir = dir;
   };
 
+  /** Compass directions in clockwise order, for relative steering. */
+  const CLOCKWISE = ['up', 'right', 'down', 'left'];
+
+  /** Rotates a compass direction by a number of quarter turns clockwise. */
+  game.turnFrom = (base, quarters) =>
+    CLOCKWISE[(CLOCKWISE.indexOf(base) + quarters + 4) % 4];
+
+  /**
+   * Steers relative to where Pac-Man is heading: -1 left, +1 right, 2 reverse.
+   *
+   * Chains off any turn already buffered rather than off his current direction,
+   * so two quick right steers make a U-turn instead of collapsing into one.
+   */
+  game.steer = (quarters) => {
+    const p = game.pacman;
+    const base = p.desiredDir && p.desiredDir !== p.dir ? p.desiredDir : p.dir;
+    game.setDirection(game.turnFrom(base, quarters));
+  };
+
   // -------------------------------------------------------------------- ghosts
 
   function ghostRelease(dt) {

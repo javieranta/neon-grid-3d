@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 4173",
-    "test": "node tests/logic.test.mjs && node tests/geometry.test.mjs",
+    "test": "node tests/logic.test.mjs && node tests/geometry.test.mjs && node tests/turning.test.mjs",
     "test:e2e": "node tests/e2e.mjs",
     "gallery": "node tests/gallery.mjs"
   },

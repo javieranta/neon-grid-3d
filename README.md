@@ -82,12 +82,18 @@ A-minor progression. Intensity rises with the level.
 
 | Action | Desktop | Touch |
 |---|---|---|
-| Move | WASD / arrows | swipe anywhere, or the thumb pad |
-| Camera cycle | C | ◎ button (overview → chase → first person → cinematic) |
+| Steer | WASD / arrows, or Q / E | swipe anywhere, or the thumb pad |
+| Steer (mouse) | left button turns left, right button turns right | — |
+| Camera cycle | C | ◎ button (chase → first person → cinematic → overview) |
 | Start / resume | Enter or Space | tap |
 | Pause | P or Esc | ❚❚ button |
 | Sound | M | ♪ button |
 | Fullscreen | F | ⛶ button |
+
+In the close cameras, input is **relative to where Pac-Man is heading** — up is
+forward, left and right steer, down reverses — because the camera rotates to sit
+behind him and compass input would no longer match the screen. The overview keeps
+absolute compass controls, since there the maze does not rotate.
 
 On iPhone, add it to your home screen for a fullscreen, chrome-free run.
 

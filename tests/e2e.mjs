@@ -254,6 +254,61 @@ async function run() {
     ok(after.remaining < before.remaining, 'pellets were eaten', `${before.remaining} -> ${after.remaining}`);
     ok(Number.isFinite(after.pac.x) && Number.isFinite(after.pac.y), 'Pac-Man position is finite');
 
+    // Controls: the close camera rotates behind Pac-Man, so screen input has to be
+    // interpreted relative to his heading or the player fights the camera.
+    const steering = await page.evaluate(() => {
+      const { game, view } = window.__neon;
+      view.setCameraMode('chase');
+      const out = {};
+      const set = (dir) => {
+        game.pacman.dir = dir;
+        game.pacman.desiredDir = dir;
+      };
+      set('left');
+      window.__neon.press('right');
+      out.leftThenScreenRight = game.pacman.desiredDir;
+      set('left');
+      window.__neon.press('left');
+      out.leftThenScreenLeft = game.pacman.desiredDir;
+      set('up');
+      window.__neon.press('up');
+      out.forwardKeepsHeading = game.pacman.desiredDir;
+      set('right');
+      window.__neon.steer(1);
+      window.__neon.steer(1);
+      out.doubleSteerReverses = game.pacman.desiredDir;
+      view.setCameraMode('overview');
+      set('left');
+      window.__neon.press('up');
+      out.overviewIsAbsolute = game.pacman.desiredDir;
+      return out;
+    });
+    eqLabel(steering.leftThenScreenRight, 'up', 'screen-right steers right of heading');
+    eqLabel(steering.leftThenScreenLeft, 'down', 'screen-left steers left of heading');
+    eqLabel(steering.forwardKeepsHeading, 'up', 'screen-forward keeps the heading');
+    eqLabel(steering.doubleSteerReverses, 'left', 'two steers make a U-turn');
+    eqLabel(steering.overviewIsAbsolute, 'up', 'overview keeps absolute compass input');
+
+    // Mouse steering: buttons turn him, he never stops.
+    await page.evaluate(() => {
+      const { game, view } = window.__neon;
+      view.setCameraMode('chase');
+      game.pacman.dir = 'up';
+      game.pacman.desiredDir = 'up';
+    });
+    await page.locator('#scene').dispatchEvent('mousedown', { button: 2 });
+    const afterRight = await page.evaluate(() => window.__neon.game.pacman.desiredDir);
+    eqLabel(afterRight, 'right', 'right mouse button steers right');
+    await page.evaluate(() => {
+      const g = window.__neon.game;
+      g.pacman.dir = 'up';
+      g.pacman.desiredDir = 'up';
+    });
+    await page.locator('#scene').dispatchEvent('mousedown', { button: 0 });
+    const afterLeft = await page.evaluate(() => window.__neon.game.pacman.desiredDir);
+    eqLabel(afterLeft, 'left', 'left mouse button steers left');
+    await page.evaluate(() => window.__neon.view.setCameraMode('chase'));
+
     const stats = await page.evaluate(() => window.__neon.stats());
     results.stats = stats;
     ok(stats.triangles > 40000, 'scene has substantial geometry', `${stats.triangles.toLocaleString()} tris`);
