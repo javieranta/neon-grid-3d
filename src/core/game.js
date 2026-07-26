@@ -10,9 +10,8 @@ import { advance, createActor, lockLane, tileOf, tryTurn } from './actor.js';
 import { DIRECTIONS, SPAWN, TILE, createMaze, deltaX } from './maze.js';
 import {
   FRUITS,
-  FRUIT_LIFETIME,
+  FRUITS_PER_LEVEL,
   FRUIT_SPAWNS,
-  FRUIT_TRIGGERS,
   FULL_SPEED_TPS,
   GLOBAL_DOT_LIMITS,
   SCORE,
@@ -47,6 +46,18 @@ const DEATH_TIME = 1.9;
 const GHOST_SCORE_TIME = 0.85;
 const LEVEL_CLEAR_TIME = 2.4;
 const GAME_OVER_TIME = 3.4;
+
+/** Jump: a short hop, and the height above which a ghost passes underneath. */
+const JUMP_DURATION = 0.62;
+const JUMP_PEAK = 1.15;
+const JUMP_CLEAR_HEIGHT = 0.42;
+export const JUMPS_PER_LEVEL = 3;
+
+/** Scout: two seconds at full view, with a short ease either side. */
+const SCOUT_HOLD = 2.0;
+const SCOUT_RAMP = 0.35;
+const SCOUT_TOTAL = SCOUT_HOLD + SCOUT_RAMP * 2;
+export const SCOUTS_PER_LEVEL = 3;
 
 /** Small deterministic PRNG so replays and tests behave identically. */
 export function makeRng(seed = 0x2f6e2b1) {
@@ -101,6 +112,13 @@ export function createGame(options = {}) {
     elroySuspended: false,
     releaseTimer: 0,
     munchStall: 0,
+    /** Limited abilities, both reset per level. */
+    jumpsLeft: JUMPS_PER_LEVEL,
+    scoutsLeft: SCOUTS_PER_LEVEL,
+    /** Current hop height in tiles; 0 while grounded. */
+    airborne: 0,
+    jumpTimer: 0,
+    scoutTimer: 0,
     /** Every fruit currently on the board. Several can coexist. */
     fruits: [],
     fruitsSpawned: 0,
@@ -151,7 +169,10 @@ export function createGame(options = {}) {
     game.waveTimer = 0;
     game.munchStall = 0;
     game.releaseTimer = 0;
-    game.fruits.length = 0;
+    // A hop must not survive a death, but the level's remaining budget does.
+    game.airborne = 0;
+    game.jumpTimer = 0;
+    game.scoutTimer = 0;
 
     const limits = houseDotLimits(game.level);
     game.ghosts.pinky.dotLimit = limits.pinky;
@@ -177,6 +198,8 @@ export function createGame(options = {}) {
     game.scorePopups.length = 0;
     maze.reset();
     resetActors(false);
+    spawnLevelFruits();
+    resetAbilities();
     game.started = true;
     setState(STATE.READY, READY_TIME);
     emit('ready', { level: game.level, intro: true });
@@ -189,8 +212,58 @@ export function createGame(options = {}) {
     game.fruitsSpawned = 0;
     maze.reset();
     resetActors(false);
+    spawnLevelFruits();
+    resetAbilities();
     setState(STATE.READY, READY_TIME_RESPAWN);
     emit('ready', { level, intro: false });
+  };
+
+  /** Resets the per-level ability budgets. */
+  function resetAbilities() {
+    game.jumpsLeft = JUMPS_PER_LEVEL;
+    game.scoutsLeft = SCOUTS_PER_LEVEL;
+    game.airborne = 0;
+    game.jumpTimer = 0;
+    game.scoutTimer = 0;
+  }
+
+  /**
+   * Starts a hop if one is available and he is not already in the air.
+   * Returns whether it took.
+   */
+  game.tryJump = () => {
+    if (game.state !== STATE.PLAYING) return false;
+    if (game.jumpTimer > 0 || game.jumpsLeft <= 0) {
+      emit('abilityDenied', { kind: 'jump', left: game.jumpsLeft });
+      return false;
+    }
+    game.jumpsLeft--;
+    game.jumpTimer = JUMP_DURATION;
+    emit('jump', { left: game.jumpsLeft });
+    return true;
+  };
+
+  /**
+   * Lifts the camera to the full board for a moment. The simulation keeps
+   * running, so this is a look rather than a pause.
+   */
+  game.tryScout = () => {
+    if (game.state !== STATE.PLAYING) return false;
+    if (game.scoutTimer > 0 || game.scoutsLeft <= 0) {
+      emit('abilityDenied', { kind: 'scout', left: game.scoutsLeft });
+      return false;
+    }
+    game.scoutsLeft--;
+    game.scoutTimer = SCOUT_TOTAL;
+    emit('scout', { left: game.scoutsLeft });
+    return true;
+  };
+
+  /** 0..1 ease for the scout camera, ramping in and out of the hold. */
+  game.scoutBlend = () => {
+    if (game.scoutTimer <= 0) return 0;
+    const elapsed = SCOUT_TOTAL - game.scoutTimer;
+    return Math.max(0, Math.min(1, Math.min(elapsed / SCOUT_RAMP, game.scoutTimer / SCOUT_RAMP)));
   };
 
   function setState(next, timer = 0) {
@@ -357,8 +430,6 @@ export function createGame(options = {}) {
         emit('pellet', { remaining: maze.remaining });
       }
 
-      const trigger = FRUIT_TRIGGERS.indexOf(game.dotsEaten);
-      if (trigger >= 0) spawnFruit(trigger);
       if (maze.remaining === 0) {
         setState(STATE.LEVEL_CLEAR, LEVEL_CLEAR_TIME);
         game.levelFlash = 0;
@@ -391,6 +462,13 @@ export function createGame(options = {}) {
         return;
       }
 
+      // Cleared: he is over the ghost's head. Frightened ghosts are still eaten
+      // in the air, above, because a well-timed jump should not cost the bonus.
+      if (game.airborne > JUMP_CLEAR_HEIGHT) {
+        emit('ghostCleared', { id });
+        continue;
+      }
+
       // Fatal contact.
       p.alive = false;
       game.deathProgress = 0;
@@ -403,25 +481,26 @@ export function createGame(options = {}) {
   // -------------------------------------------------------------------- fruit
 
   /**
-   * Spawns the fruit for one trigger. Slot 1 is always a cherry regardless of
-   * level - it is the signature item - while the others are the level's own fruit
-   * from the arcade table.
+   * Places every fruit for the level. Slot 1 is always a cherry whatever the
+   * level - it is the signature item - and the others are the level's own fruit
+   * from the arcade table. They carry no timer: a fruit waits to be collected.
    */
-  function spawnFruit(slot) {
-    const where = FRUIT_SPAWNS[slot] ?? SPAWN.fruit;
-    const def = slot === 1 ? FRUITS[0] : game.cfg.fruit;
-    const life = FRUIT_LIFETIME[0] + rng() * (FRUIT_LIFETIME[1] - FRUIT_LIFETIME[0]);
-    const fruit = { x: where.x, y: where.y, timer: life, def, slot };
-    game.fruits.push(fruit);
-    game.fruitsSpawned++;
-    emit('fruitSpawn', { fruit: def, remaining: FRUIT_TRIGGERS.length - game.fruitsSpawned });
+  function spawnLevelFruits() {
+    game.fruits.length = 0;
+    for (let slot = 0; slot < FRUITS_PER_LEVEL; slot++) {
+      const where = FRUIT_SPAWNS[slot] ?? SPAWN.fruit;
+      const def = slot === 1 ? FRUITS[0] : game.cfg.fruit;
+      game.fruits.push({ x: where.x, y: where.y, timer: Infinity, def, slot });
+    }
+    game.fruitsSpawned = game.fruits.length;
+    emit('fruitsPlaced', { count: game.fruits.length, fruits: game.fruits.map((f) => f.def) });
   }
 
   function updateFruit(dt) {
     const p = game.pacman;
     for (let i = game.fruits.length - 1; i >= 0; i--) {
       const f = game.fruits[i];
-      f.timer -= dt;
+      if (Number.isFinite(f.timer)) f.timer -= dt;
       if (f.timer <= 0) {
         game.fruits.splice(i, 1);
         emit('fruitExpire', { fruit: f.def });
@@ -558,6 +637,16 @@ export function createGame(options = {}) {
         emit('frightEnd', {});
       }
     }
+
+    if (game.jumpTimer > 0) {
+      game.jumpTimer = Math.max(0, game.jumpTimer - dt);
+      const t = 1 - game.jumpTimer / JUMP_DURATION;
+      // Simple parabola: leaves the ground at t=0, lands at t=1.
+      game.airborne = 4 * JUMP_PEAK * (t - t * t);
+    } else {
+      game.airborne = 0;
+    }
+    if (game.scoutTimer > 0) game.scoutTimer = Math.max(0, game.scoutTimer - dt);
 
     updateWaves(dt);
     ghostRelease(dt);

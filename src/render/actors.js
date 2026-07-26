@@ -223,10 +223,10 @@ export function createPacman(quality) {
      * @param {number} time
      * @param {number} death 0..1 death animation progress
      */
-    update(pac, time, death) {
+    update(pac, time, death, airborne = 0) {
       const wx = worldX(pac.x);
       const wz = worldZ(pac.y);
-      root.position.set(wx, PAC_Y, wz);
+      root.position.set(wx, PAC_Y + airborne, wz);
       pool.position.set(wx, 0.012, wz);
 
       group.rotation.y = DIR_YAW[pac.dir] ?? 0;
@@ -254,8 +254,13 @@ export function createPacman(quality) {
       upper.rotation.z = half;
       lower.rotation.z = -half;
 
-      const bob = Math.sin(time * 9) * 0.012;
-      root.position.y = PAC_Y + bob;
+      const bob = airborne > 0 ? 0 : Math.sin(time * 9) * 0.012;
+      root.position.y = PAC_Y + airborne + bob;
+      // A little stretch on the way up and squash on landing sells the hop.
+      if (airborne > 0) {
+        const s = 1 + Math.min(0.14, airborne * 0.12);
+        group.scale.set(1 / Math.sqrt(s), s, 1 / Math.sqrt(s));
+      }
       halo.material.opacity = (0.26 + 0.08 * Math.sin(time * 6)) * lampScale;
       pool.material.opacity = 0.3 + 0.08 * Math.sin(time * 6);
       if (light) light.intensity = lampScale * (0.95 + 0.2 * Math.sin(time * 7));
@@ -279,40 +284,62 @@ const SKIRT_AMPLITUDE = 0.17;
 /** Unit triangle wave. Sharp peaks and valleys, unlike a sine's soft scallops. */
 const triangleWave = (x) => 2 * Math.abs(x - Math.floor(x + 0.5));
 
-function buildSkirt(radius, height) {
+/**
+ * The whole ghost body as one revolved mesh: crown, shoulder, side, hem.
+ *
+ * It used to be a hemisphere plus a separate cylinder, which left a shading seam
+ * at the shoulder and made the lower half look like a detached piece. Building one
+ * surface with normals that are continuous across the equator - the dome's normal
+ * there is already horizontal, matching the side's - removes the seam entirely.
+ *
+ * The last ring is the hem, and it is the only thing animated.
+ */
+function buildGhostBody(radius, skirtHeight) {
+  const DOME_RINGS = 12;
   const positions = [];
   const normals = [];
   const uvs = [];
   const indices = [];
-  const rings = 2;
 
-  for (let r = 0; r < rings; r++) {
+  // Profile as [radius, y, normalR, normalY], crown first.
+  const profile = [];
+  for (let j = 0; j <= DOME_RINGS; j++) {
+    const theta = (j / DOME_RINGS) * (Math.PI / 2);
+    profile.push([radius * Math.sin(theta), radius * Math.cos(theta), Math.sin(theta), Math.cos(theta)]);
+  }
+  // Down the side at constant radius; the normal is horizontal, which is exactly
+  // what the dome's last ring already has, so the shoulder is smooth.
+  profile.push([radius, -skirtHeight * 0.5, 1, 0]);
+  profile.push([radius, -skirtHeight, 1, 0]);
+
+  const stride = SKIRT_SEGMENTS + 1;
+  for (const [r, y, nr, ny] of profile) {
     for (let i = 0; i <= SKIRT_SEGMENTS; i++) {
       const a = (i / SKIRT_SEGMENTS) * Math.PI * 2;
-      const x = Math.cos(a) * radius;
-      const z = Math.sin(a) * radius;
-      positions.push(x, r === 0 ? 0 : -height, z);
-      normals.push(Math.cos(a), 0, Math.sin(a));
-      uvs.push(i / SKIRT_SEGMENTS, r);
+      positions.push(Math.cos(a) * r, y, Math.sin(a) * r);
+      normals.push(Math.cos(a) * nr, ny, Math.sin(a) * nr);
+      uvs.push(i / SKIRT_SEGMENTS, 1 - y / radius);
     }
   }
-  const stride = SKIRT_SEGMENTS + 1;
-  for (let i = 0; i < SKIRT_SEGMENTS; i++) {
-    const a = i;
-    const b = i + 1;
-    const c = stride + i;
-    const d = stride + i + 1;
-    indices.push(a, c, b, b, c, d);
+  for (let ring = 0; ring < profile.length - 1; ring++) {
+    for (let i = 0; i < SKIRT_SEGMENTS; i++) {
+      const a = ring * stride + i;
+      const b = a + 1;
+      const c = a + stride;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
   }
 
-  // Flat cap so the ghost is not see-through from below (it shows in the mirror).
-  // Sits at the hem's mean depth so it stays hidden behind the points.
-  const capStart = positions.length / 3;
-  positions.push(0, -height + SKIRT_AMPLITUDE * 0.5, 0);
+  // Flat cap at the hem's mean depth so nothing shows through from below, which
+  // the floor reflection would otherwise reveal.
+  const hemStart = (profile.length - 1) * stride;
+  const capIndex = positions.length / 3;
+  positions.push(0, -skirtHeight + SKIRT_AMPLITUDE * 0.5, 0);
   normals.push(0, -1, 0);
   uvs.push(0.5, 0.5);
   for (let i = 0; i < SKIRT_SEGMENTS; i++) {
-    indices.push(capStart, stride + i + 1, stride + i);
+    indices.push(capIndex, hemStart + i + 1, hemStart + i);
   }
 
   const geo = new THREE.BufferGeometry();
@@ -320,9 +347,9 @@ function buildSkirt(radius, height) {
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
-  geo.userData.bottomStart = stride;
-  geo.userData.bottomCount = stride;
-  geo.userData.baseHeight = height;
+  geo.userData.hemStart = hemStart;
+  geo.userData.hemCount = stride;
+  geo.userData.hemY = -skirtHeight;
   return geo;
 }
 
@@ -400,23 +427,10 @@ export function createGhost(id, quality) {
       );
   };
 
-  const dome = new THREE.SphereGeometry(
-    GHOST_R,
-    quality.ghostSegments,
-    Math.max(10, quality.ghostSegments / 2),
-    0,
-    Math.PI * 2,
-    0,
-    Math.PI / 2
-  );
-  const domeMesh = new THREE.Mesh(dome, bodyMat);
-  domeMesh.castShadow = quality.shadows;
-  body.add(domeMesh);
-
-  const skirtGeo = buildSkirt(GHOST_R, 0.42);
-  const skirtMesh = new THREE.Mesh(skirtGeo, bodyMat);
-  skirtMesh.castShadow = quality.shadows;
-  body.add(skirtMesh);
+  const bodyGeo = buildGhostBody(GHOST_R, 0.42);
+  const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+  bodyMesh.castShadow = quality.shadows;
+  body.add(bodyMesh);
 
   // Neon aura shell.
   const auraMat = new THREE.MeshBasicMaterial({
@@ -507,10 +521,10 @@ export function createGhost(id, quality) {
     root.add(light);
   }
 
-  const skirtPos = skirtGeo.attributes.position;
-  const baseHeight = skirtGeo.userData.baseHeight;
-  const bottomStart = skirtGeo.userData.bottomStart;
-  const bottomCount = skirtGeo.userData.bottomCount;
+  const hemPos = bodyGeo.attributes.position;
+  const hemStart = bodyGeo.userData.hemStart;
+  const hemCount = bodyGeo.userData.hemCount;
+  const hemY = bodyGeo.userData.hemY;
 
   const frightColour = new THREE.Color(PALETTE.frightened);
   const flashColour = new THREE.Color(PALETTE.frightenedFlash);
@@ -554,14 +568,17 @@ export function createGhost(id, quality) {
       halo.visible = !hidden;
       pool.visible = !hidden;
 
-      // Animated skirt hem: a triangle wave gives the sharp points the reference
-      // art and the arcade sprite both have, where a sine gives soft scallops.
-      const phase = time * 1.1 + (g.x + g.y) * 0.1;
-      for (let i = 0; i < bottomCount; i++) {
-        const u = (i / SKIRT_SEGMENTS) * SKIRT_LOBES + phase;
-        skirtPos.setY(bottomStart + i, -baseHeight + SKIRT_AMPLITUDE * triangleWave(u));
+      // The hem flutters IN PLACE. The phase used to include the ghost's own
+      // position, so the wave crept around the circumference as it moved and the
+      // lower half looked like it was rotating independently of the head. A small
+      // time-only oscillation makes the points wobble where they are, which is what
+      // the arcade sprite's two-frame hem animation reads as.
+      const flutter = 0.22 * Math.sin(time * 7);
+      for (let i = 0; i < hemCount; i++) {
+        const u = (i / SKIRT_SEGMENTS) * SKIRT_LOBES + flutter;
+        hemPos.setY(hemStart + i, hemY + SKIRT_AMPLITUDE * triangleWave(u));
       }
-      skirtPos.needsUpdate = true;
+      hemPos.needsUpdate = true;
 
       // Eyes track the direction of travel, in the projected top-down sense.
       const d = DIRECTIONS[g.eyeDir ?? g.dir] ?? DIRECTIONS.left;
@@ -571,7 +588,7 @@ export function createGhost(id, quality) {
         part.pupil.position.z = 0.425 - Math.abs(d.y) * 0.02;
       }
 
-      const bob = Math.sin(time * 5.5 + phase * 0.1) * 0.02;
+      const bob = Math.sin(time * 5.5 + (g.x + g.y) * 0.4) * 0.02;
       root.position.y = GHOST_Y + bob;
       auraMat.opacity = auraBase;
       halo.material.opacity = haloBase;
@@ -593,7 +610,7 @@ export function createGhost(id, quality) {
         bodyMat.color.copy(normalColour);
         bodyMat.emissive.copy(normalColour);
         bodyMat.emissiveIntensity =
-          (0.7 + 0.12 * Math.sin(time * 4 + phase * 0.2)) * emissiveScale;
+          (0.7 + 0.12 * Math.sin(time * 4)) * emissiveScale;
         auraMat.color.setHex(meta.glow);
         if (rimUniform) rimUniform.value.setHex(meta.glow);
         mouth.visible = false;

@@ -90,9 +90,30 @@ function boot() {
     hud.showToast(`+${points}`, 1.0);
   });
 
-  game.on('fruitSpawn', ({ fruit }) => {
-    hud.showToast(`${fruit.label} ON THE GRID — ${fruit.points} PTS`, 2.4);
+  game.on('jump', ({ left }) => {
     audio.ui();
+    view.punch(0.35);
+    hud.showToast(`JUMP — ${left} LEFT`, 1.1);
+  });
+
+  game.on('ghostCleared', () => {
+    audio.extraLife();
+    view.post.flash(0x9bff8f, 0.3, 0.25);
+    hud.showToast('CLEARED IT', 1.2);
+  });
+
+  game.on('scout', ({ left }) => {
+    audio.ui();
+    hud.showToast(`SCOUT — ${left} LEFT`, 1.2);
+  });
+
+  game.on('abilityDenied', ({ kind }) => {
+    hud.showToast(kind === 'jump' ? 'NO JUMPS LEFT' : 'NO SCOUTS LEFT', 1.2);
+  });
+
+  game.on('fruitsPlaced', ({ count, fruits }) => {
+    const labels = [...new Set(fruits.map((f) => f.label))].join(' + ');
+    hud.showToast(`${count} FRUITS ON THE GRID — ${labels}`, 2.6);
   });
 
   game.on('fruitEaten', ({ fruit }) => {
@@ -186,6 +207,8 @@ function boot() {
       else game.setDirection(dir);
     },
     onSteer: (quarters) => game.steer(quarters),
+    onJump: () => game.tryJump(),
+    onScout: () => game.tryScout(),
     onStart: startOrResume,
     onPause: togglePause,
     onCamera: () => {
@@ -324,6 +347,10 @@ function boot() {
     requestAnimationFrame(frame);
   });
 
+  // ?comfort=1 switches off depth of field, shake and field-of-view punches. This
+  // is the configuration the VR build will run in.
+  if (params.get('comfort') === '1') view.setComfortMode(true);
+
   // Expose a tiny harness so the automated tests can drive the game headlessly.
   window.__neon = {
     game,
@@ -338,6 +365,8 @@ function boot() {
       else game.setDirection(d);
     },
     steer: (q) => game.steer(q),
+    jump: () => game.tryJump(),
+    scout: () => game.tryScout(),
     start: () => {
       hud.hideTitle();
       game.startGame();

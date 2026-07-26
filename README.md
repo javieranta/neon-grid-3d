@@ -24,13 +24,17 @@ The full arcade rule set, reimplemented as pure logic, wrapped in a synthwave re
 | **Speeds** | Arcade percentages of 75.76 px/s, including tunnel slowdown and frightened speeds |
 | **Fruit** | All eight authentic items — cherry 100, strawberry 300, orange 500, apple 700, melon 1000, Galaxian 2000, bell 3000, key 5000 — on the arcade's per-level order |
 | **Lives** | Three, extra life at 10,000, per-level progression to 21+ |
+| **Jump** | Space, three per level. A hop clears a hunting ghost if it is timed into the contact; a frightened ghost is still eaten in the air |
+| **Scout** | Q, three per level. Lifts to the full board for two seconds and eases back, with the game still running |
 
-One deliberate departure from the arcade: it spawns **three** fruits per level
-rather than two, at three separate tiles — the arcade's own spot below the ghost
-house plus both side tunnels — and they can be on the board at once. Two
-appearances on a single tile meant a level could be cleared without ever meeting
-one. A cherry is always among the three whatever the level. The items, their order
-and their point values are untouched.
+Two deliberate departures from the arcade. **Fruit**: all three are placed when a
+level begins, on three separate tiles — the arcade's own spot below the ghost house
+plus both side tunnels — and they wait to be collected rather than timing out. A
+cherry is always among them whatever the level. The arcade drip-feeds two on dot
+thresholds from a single tile, which only works because it shows you the whole
+board; with a close camera a level could be finished having never seen one. The
+items, their order and their point values are untouched. **Abilities**: a jump and a
+scout view, three of each per level, neither of which the arcade has.
 
 Nothing is loaded from disk: every mesh, texture, sound and note is generated at runtime.
 
@@ -89,7 +93,9 @@ A-minor progression. Intensity rises with the level.
 
 | Action | Desktop | Touch |
 |---|---|---|
-| Steer | WASD / arrows, or Q / E | swipe anywhere, or the thumb pad |
+| Steer | WASD / arrows | swipe anywhere, or the thumb pad |
+| Jump | Space | — |
+| Scout the board | Q | — |
 | Steer (mouse) | left button turns left, right button turns right | — |
 | Camera cycle | C | ◎ button (chase → first person → cinematic → overview) |
 | Start / resume | Enter or Space | tap |
@@ -122,8 +128,8 @@ Typical desktop GPU: ~640k triangles, ~275 draw calls at the ultra tier.
 npm install
 npm run dev            # vite dev server
 npm run build          # static build into docs/ (what GitHub Pages serves)
-npm test               # 158 assertions: simulation + geometry/grid agreement
-npm run test:e2e       # 32 browser assertions, desktop + iPhone viewports
+npm test               # 1283 assertions: simulation, geometry, and turning
+npm run test:e2e       # 60 browser assertions, desktop + iPhone viewports
 npm run gallery        # renders the still gallery under media/
 ```
 
@@ -159,6 +165,16 @@ src/
 
 The simulation never imports the renderer and never touches the DOM, which is why it can
 be driven headlessly at thousands of frames per second in the test suite.
+
+## Heading to VR
+
+`docs/VR-PORT.md` is the port plan, written from the code rather than from a survey:
+what is already in place (a player rig the headset can compose onto, a first-person
+mode, a comfort mode, a renderer-independent simulation), the one real blocker
+(EffectComposer does not work in a WebXR session, so the post chain needs bypassing
+or replacing), the world-scale decision, and a comfort checklist — including the
+open question of whether the rig should keep yawing to follow Pac-Man, which would
+whip the world around a player's head at every corner.
 
 ## Notes on originality
 

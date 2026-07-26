@@ -136,13 +136,13 @@ export const SCORE = {
 };
 
 /**
- * Dots eaten thresholds that make a fruit appear.
+ * How many fruits a level holds. All of them are placed when the level starts.
  *
- * The arcade uses two (70 and 170); this uses three, and starts earlier, because
- * two appearances on a single tile meant a level could be cleared without ever
- * meeting one.
+ * The arcade drip-feeds two on dot thresholds, both on one tile, and they time
+ * out. That only works because the arcade shows the whole board at once; with a
+ * close camera a level could be finished having never seen one.
  */
-export const FRUIT_TRIGGERS = [40, 105, 175];
+export const FRUITS_PER_LEVEL = 3;
 
 /**
  * Where each of those fruits appears, in tile coordinates. All three are dotless
@@ -157,10 +157,7 @@ export const FRUIT_SPAWNS = [
 ];
 
 /**
- * Seconds on the board, randomised between these.
- *
- * Longer than the arcade's nine to ten. A fruit can be twenty-five tiles away and
- * real maze routes take eight to ten seconds to walk, so the arcade's window only
- * worked because the arcade showed you the whole board at once.
+ * Fruits placed at the start of a level do not expire - they wait to be collected.
+ * The range is kept for any future timed spawn.
  */
 export const FRUIT_LIFETIME = [16, 19];

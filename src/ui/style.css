@@ -247,6 +247,70 @@ body.booted #ui {
   color: #ffb457;
 }
 
+/* ------------------------------------------------------------------ abilities */
+
+.abilities {
+  position: absolute;
+  left: max(14px, env(safe-area-inset-left));
+  top: 46%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ability {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 20px;
+  background: #06122099;
+  border: 1px solid #00e9ff33;
+  backdrop-filter: blur(7px);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: #bfefff;
+}
+
+.ability-key {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #00e9ff22;
+  border: 1px solid #00e9ff55;
+  font-size: 7.5px;
+  letter-spacing: 0.08em;
+  color: #d6faff;
+}
+
+.ability-name {
+  min-width: 38px;
+}
+
+.ability-pips {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+  padding-left: 6px;
+}
+
+.pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00e9ff;
+  box-shadow: 0 0 8px #00e9ffcc;
+}
+
+.pip.spent {
+  background: #ffffff1f;
+  box-shadow: none;
+}
+
+.ability.empty {
+  border-color: #ffffff14;
+  color: #6f8894;
+}
+
 /* --------------------------------------------------------- power pellet timer */
 
 .fright {

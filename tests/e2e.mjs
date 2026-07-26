@@ -316,59 +316,15 @@ async function run() {
     ok(stats.wallBlocks >= 20, 'wall silhouettes were extracted', `${stats.wallBlocks} blocks`);
     console.log(`  · ${stats.tier} tier · ${stats.triangles.toLocaleString()} tris · ${stats.calls} calls · ${stats.wallBlocks} blocks`);
 
-    // Fruits, by actually PLAYING to the first trigger rather than forcing one.
-    // Every earlier fruit test either drove the pure simulation or injected a fruit
-    // straight into the renderer, so "play a level and meet a fruit" - the thing a
-    // player does - was never covered, and it was broken in practice.
-    await page.evaluate(() => {
-      const { game } = window.__neon;
-      window.__fruitSpawns = [];
-      game.on('fruitSpawn', (e) => window.__fruitSpawns.push(e.fruit.id));
-      const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-      window.__fruitBot = setInterval(() => {
-        if (game.state !== 'playing') return;
-        const px = Math.round(game.pacman.x);
-        const py = Math.round(game.pacman.y);
-        const q = [[px, py, null]];
-        const seen = new Set([`${px},${py}`]);
-        let guard = 0;
-        let pick = null;
-        while (q.length && guard++ < 4000) {
-          const [x, y, first] = q.shift();
-          if (game.maze.pelletAt(x, y) && first) {
-            pick = first;
-            break;
-          }
-          for (const [name, d] of Object.entries(DIRS)) {
-            let nx = x + d[0];
-            const ny = y + d[1];
-            if (nx < 0) nx += 28;
-            if (nx > 27) nx -= 28;
-            const k = `${nx},${ny}`;
-            if (seen.has(k) || !game.maze.walkable(nx, ny)) continue;
-            seen.add(k);
-            q.push([nx, ny, first ?? name]);
-          }
-        }
-        if (pick) game.setDirection(pick);
-        // Pen the ghosts so a death cannot cut the run short.
-        for (const id of Object.keys(game.ghosts)) {
-          const g = game.ghosts[id];
-          if (g.state === 'hunting') {
-            g.state = 'house';
-            g.x = g.meta.homeX;
-            g.y = 14;
-          }
-        }
-      }, 16);
-    });
-
-    await page.waitForFunction(() => window.__fruitSpawns.length > 0, null, { timeout: 90000 });
-    await page.waitForTimeout(600);
+    // Fruits are placed when a level starts, so this checks the render path end to
+    // end: three in state, their meshes visible through the whole parent chain, and
+    // a tracker row per fruit. Earlier fruit tests only drove the simulation or
+    // injected a fruit into the renderer, so the played path was never covered.
     const fruitState = await page.evaluate(() => {
       const { game, view } = window.__neon;
-      // Count fruit meshes that are actually visible through their whole parent chain.
-      const FRUIT_HEX = [0xff2b52, 0x4dff8f, 0xff2f6b, 0xffa229, 0xff3355, 0x6dff5c, 0x4dd8ff, 0xffd24d, 0x8ce9ff];
+      const FRUIT_HEX = [
+        0xff2b52, 0x4dff8f, 0xff2f6b, 0xffa229, 0xff3355, 0x6dff5c, 0x4dd8ff, 0xffd24d, 0x8ce9ff,
+      ];
       let visibleMeshes = 0;
       view.scene.traverse((o) => {
         if (!o.isMesh) return;
@@ -382,23 +338,67 @@ async function run() {
       });
       const t = document.getElementById('fruit-tracker');
       return {
-        spawned: window.__fruitSpawns,
         onBoard: game.fruits.length,
-        dots: game.dotsEaten,
+        ids: game.fruits.map((f) => f.def.id),
+        positions: game.fruits.map((f) => `${f.x},${f.y}`),
         visibleMeshes,
         trackerVisible: !!t && t.classList.contains('visible'),
         trackerRows: t ? t.querySelectorAll('.fruit-cue').length : 0,
         trackerDistance: t?.querySelector('.fruit-cue em')?.textContent ?? '',
       };
     });
-    ok(fruitState.spawned.length >= 1, 'playing to the trigger spawns a fruit', fruitState.spawned.join(','));
-    ok(fruitState.onBoard >= 1, 'the fruit is on the board', `${fruitState.onBoard}`);
-    ok(fruitState.visibleMeshes >= 2, 'the fruit model is actually rendered', `${fruitState.visibleMeshes} meshes`);
+    eqLabel(fruitState.onBoard, 3, 'three fruits on the board from the level start');
+    ok(fruitState.ids.includes('cherry'), 'a cherry is among them', fruitState.ids.join(','));
+    ok(new Set(fruitState.positions).size === 3, 'all three sit on distinct tiles', fruitState.positions.join(' '));
+    ok(fruitState.visibleMeshes >= 6, 'all three fruit models are rendered', `${fruitState.visibleMeshes} meshes`);
     ok(fruitState.trackerVisible, 'the HUD fruit tracker is showing');
-    ok(fruitState.trackerRows >= 1, 'tracker has a row per fruit', `${fruitState.trackerRows}`);
+    eqLabel(fruitState.trackerRows, 3, 'a tracker row per fruit');
     ok(/^\d+$/.test(fruitState.trackerDistance), 'tracker reports a distance in tiles', fruitState.trackerDistance);
-    console.log(`  · fruit met after ${fruitState.dots} dots: ${fruitState.spawned.join(',')}`);
-    await page.evaluate(() => clearInterval(window.__fruitBot));
+
+    // Jump and scout, through the same handlers the keys use.
+    //
+    // These POLL for the state rather than waiting a fixed number of milliseconds.
+    // Under software rasterisation the fixed-timestep loop caps at twelve steps a
+    // frame, so at a few frames per second game time advances far slower than wall
+    // clock and any sleep-based assertion reads a half-finished arc.
+    const startBudgets = await page.evaluate(() => ({
+      jumps: window.__neon.game.jumpsLeft,
+      scouts: window.__neon.game.scoutsLeft,
+    }));
+    eqLabel(startBudgets.jumps, 3, 'three jumps at level start');
+    eqLabel(startBudgets.scouts, 3, 'three scouts at level start');
+
+    await page.evaluate(() => window.__neon.jump());
+    await page.waitForFunction(() => window.__neon.game.airborne > 0.3, null, { timeout: 20000 });
+    const midJump = await page.evaluate(() => ({
+      airborne: window.__neon.game.airborne,
+      jumps: window.__neon.game.jumpsLeft,
+    }));
+    ok(midJump.airborne > 0.3, 'space lifts Pac-Man off the ground', midJump.airborne.toFixed(2));
+    eqLabel(midJump.jumps, 2, 'the jump was deducted');
+
+    await page.waitForFunction(() => window.__neon.game.airborne === 0, null, { timeout: 20000 });
+    ok(true, 'and he lands again');
+
+    await page.evaluate(() => window.__neon.scout());
+    await page.waitForFunction(() => window.__neon.game.scoutBlend() > 0.9, null, { timeout: 20000 });
+    const scoutState = await page.evaluate(() => ({
+      blend: window.__neon.game.scoutBlend(),
+      scouts: window.__neon.game.scoutsLeft,
+    }));
+    ok(scoutState.blend > 0.9, 'the scout camera reaches the full board', scoutState.blend.toFixed(2));
+    eqLabel(scoutState.scouts, 2, 'the scout was deducted');
+    await page.waitForFunction(() => window.__neon.game.scoutBlend() === 0, null, { timeout: 30000 });
+    ok(true, 'and the scout returns to the play camera');
+
+    const pips = await page.evaluate(() => ({
+      jump: document.querySelectorAll('#ability-jump .pip').length,
+      jumpSpent: document.querySelectorAll('#ability-jump .pip.spent').length,
+      scout: document.querySelectorAll('#ability-scout .pip').length,
+    }));
+    eqLabel(pips.jump, 3, 'three jump pips in the sidebar');
+    eqLabel(pips.jumpSpent, 1, 'one jump pip shown spent');
+    eqLabel(pips.scout, 3, 'three scout pips in the sidebar');
 
     // Power pellet: force an energizer and check the frightened visual state.
     await page.evaluate(() => {

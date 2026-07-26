@@ -5,7 +5,7 @@
  * safe-area handling on notched iPhones, and no extra draw calls in the 3D pass.
  */
 
-import { STATE } from '../core/game.js';
+import { JUMPS_PER_LEVEL, SCOUTS_PER_LEVEL, STATE } from '../core/game.js';
 import { DIRECTIONS } from '../core/maze.js';
 import { FRUITS } from '../core/levels.js';
 import { GHOST_META, GHOST_ORDER } from '../core/ghost.js';
@@ -44,6 +44,10 @@ export function createHud(root, game) {
   const ghostList = el('#ghost-list');
   const toast = el('#toast');
   const fruitTracker = el('#fruit-tracker');
+  const jumpPips = el('#ability-jump .ability-pips');
+  const scoutPips = el('#ability-scout .ability-pips');
+  const jumpRow = el('#ability-jump');
+  const scoutRow = el('#ability-scout');
 
   let lastScore = -1;
   let lastHigh = -1;
@@ -53,6 +57,8 @@ export function createHud(root, game) {
   let lastState = null;
   let toastTimer = 0;
   let lastFruitKey = '';
+  let lastJumps = -1;
+  let lastScouts = -1;
 
   // Ghost status chips, one per personality.
   const chips = {};
@@ -99,6 +105,18 @@ export function createHud(root, game) {
     }
   }
 
+  /** Renders a spent/available pip row for a limited ability. */
+  function renderPips(host, row, left, total) {
+    if (!host) return;
+    host.innerHTML = '';
+    for (let i = 0; i < total; i++) {
+      const pip = document.createElement('span');
+      pip.className = i < left ? 'pip' : 'pip spent';
+      host.append(pip);
+    }
+    if (row) row.classList.toggle('empty', left === 0);
+  }
+
   function setCentre(title, sub, cls = '') {
     centreEl.className = `centre ${cls}`;
     centreEl.style.display = title || sub ? 'flex' : 'none';
@@ -138,6 +156,15 @@ export function createHud(root, game) {
       if (game.fruitHistory.length !== lastFruits) {
         lastFruits = game.fruitHistory.length;
         renderFruits(game.fruitHistory);
+      }
+
+      if (game.jumpsLeft !== lastJumps) {
+        lastJumps = game.jumpsLeft;
+        renderPips(jumpPips, jumpRow, game.jumpsLeft, JUMPS_PER_LEVEL);
+      }
+      if (game.scoutsLeft !== lastScouts) {
+        lastScouts = game.scoutsLeft;
+        renderPips(scoutPips, scoutRow, game.scoutsLeft, SCOUTS_PER_LEVEL);
       }
 
       // Live fruit tracker. The close camera shows about eight tiles and no map,

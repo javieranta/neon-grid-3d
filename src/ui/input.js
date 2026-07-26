@@ -28,6 +28,8 @@ export function createInput(target, handlers) {
   const {
     onDirection = () => {},
     onSteer = () => {},
+    onJump = () => {},
+    onScout = () => {},
     onStart = () => {},
     onPause = () => {},
     onCamera = () => {},
@@ -58,9 +60,13 @@ export function createInput(target, handlers) {
     }
     switch (e.code) {
       case 'Enter':
+        e.preventDefault();
+        onStart();
+        break;
       case 'Space':
         e.preventDefault();
         onStart();
+        onJump();
         break;
       case 'KeyP':
       case 'Escape':
@@ -69,13 +75,7 @@ export function createInput(target, handlers) {
         break;
       case 'KeyQ':
         e.preventDefault();
-        onSteer(-1);
-        onStart();
-        break;
-      case 'KeyE':
-        e.preventDefault();
-        onSteer(1);
-        onStart();
+        onScout();
         break;
       case 'KeyC':
         onCamera();

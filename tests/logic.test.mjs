@@ -222,82 +222,10 @@ section('movement invariants over a long bot run');
   );
 }
 
-section('fruit lifecycle');
+section('fruits are placed at the start of every level');
 {
-  const game = createGame({ seed: 21 });
-  game.startGame();
-  game.setState(STATE.PLAYING);
-  let spawned = 0;
-  let eaten = null;
-  game.on('fruitSpawn', () => spawned++);
-  game.on('fruitEaten', (e) => (eaten = e));
-
-  // Eat exactly 70 dots to trigger the first fruit.
-  for (let i = 0; i < 60 * 90 && spawned === 0; i++) {
-    if (game.state === STATE.PLAYING) game.setDirection(botDirection(game));
-    // Keep the ghosts penned so the run is deterministic.
-    for (const id of GHOST_ORDER) {
-      const g = game.ghosts[id];
-      if (g.state === 'hunting') {
-        g.state = 'house';
-        g.x = g.meta.homeX;
-        g.y = 14;
-      }
-    }
-    game.step(DT);
-  }
-  eq(spawned, 1, 'a fruit appeared at the first trigger');
-  ok(game.dotsEaten >= 40, 'trigger fired on the dot counter', `${game.dotsEaten}`);
-  eq(game.fruits.length, 1, 'fruit is on the board');
-  eq(game.fruits[0].def.points, 100, 'level 1 fruit is a 100 point cherry');
-
-  // Steer Pac-Man onto the fruit tile.
-  const target = { x: 13, y: 17 };
-  for (let i = 0; i < 60 * 30 && !eaten; i++) {
-    const p = game.pacman;
-    const px = Math.round(p.x);
-    const py = Math.round(p.y);
-    // Simple BFS toward the fruit tile.
-    const q = [[px, py, null]];
-    const seen = new Set([`${px},${py}`]);
-    let dir = p.dir;
-    let guard = 0;
-    while (q.length && guard++ < 4000) {
-      const [x, y, first] = q.shift();
-      if (x === target.x && y === target.y && first) {
-        dir = first;
-        break;
-      }
-      for (const [name, d] of Object.entries(DIRECTIONS)) {
-        const nx = wrapX(x + d.x);
-        const ny = y + d.y;
-        const key = `${nx},${ny}`;
-        if (seen.has(key) || !game.maze.walkable(nx, ny)) continue;
-        seen.add(key);
-        q.push([nx, ny, first ?? name]);
-      }
-    }
-    game.setDirection(dir);
-    for (const id of GHOST_ORDER) {
-      const g = game.ghosts[id];
-      if (g.state === 'hunting') {
-        g.state = 'house';
-        g.x = g.meta.homeX;
-        g.y = 14;
-      }
-    }
-    for (const fr of game.fruits) fr.timer = 5; // keep them alive for the test
-    game.step(DT);
-  }
-  ok(eaten !== null, 'Pac-Man collected the fruit');
-  if (eaten) eq(eaten.points, 100, 'cherry scored 100');
-  ok(game.fruitHistory.length === 1, 'fruit recorded in the HUD history');
-}
-
-section('three fruits per level, coexisting');
-{
-  const { FRUIT_SPAWNS, FRUIT_TRIGGERS, FRUITS } = await import('../src/core/levels.js');
-  eq(FRUIT_TRIGGERS.length, 3, 'three fruit triggers');
+  const { FRUIT_SPAWNS, FRUITS_PER_LEVEL, FRUITS } = await import('../src/core/levels.js');
+  eq(FRUITS_PER_LEVEL, 3, 'three fruits per level');
   eq(FRUIT_SPAWNS.length, 3, 'three fruit spawn points');
 
   // Every spawn tile must be open floor with no pellet, or it is ambiguous to eat.
@@ -309,32 +237,53 @@ section('three fruits per level, coexisting');
     eq(m.pelletAt(tx, ty), 0, `fruit spawn ${sp.x},${sp.y} carries no pellet`);
   }
 
-  // Drive a level far enough to fire all three triggers and check they coexist.
-  const game = createGame({ seed: 31 });
+  const game = createGame({ seed: 21 });
+  let placements = 0;
+  game.on('fruitsPlaced', () => placements++);
   game.startGame();
-  game.setState(STATE.PLAYING);
-  const seen = [];
-  let maxOnBoard = 0;
-  game.on('fruitSpawn', (e) => seen.push(e.fruit.id));
-  for (let i = 0; i < 60 * 240 && seen.length < 3; i++) {
-    if (game.state === STATE.PLAYING) game.setDirection(botDirection(game));
-    for (const id of GHOST_ORDER) {
-      const g = game.ghosts[id];
-      if (g.state === 'hunting') {
-        g.state = 'house';
-        g.x = g.meta.homeX;
-        g.y = 14;
-      }
-    }
-    for (const fr of game.fruits) fr.timer = 60; // hold them so overlap is observable
-    game.step(DT);
-    maxOnBoard = Math.max(maxOnBoard, game.fruits.length);
-  }
-  eq(seen.length, 3, 'all three fruits spawned in one level');
-  ok(maxOnBoard >= 2, 'fruits coexist rather than replacing each other', `${maxOnBoard}`);
-  ok(seen.includes('cherry'), 'a cherry is always among them', seen.join(','));
+  eq(game.fruits.length, 3, 'three fruits on the board the moment the level starts');
+  eq(placements, 1, 'a single placement event per level');
+  ok(
+    game.fruits.some((f) => f.def.id === 'cherry'),
+    'a cherry is always among them',
+    game.fruits.map((f) => f.def.id).join(',')
+  );
+  ok(
+    game.fruits.every((f) => !Number.isFinite(f.timer)),
+    'level fruits wait to be collected rather than timing out'
+  );
 
-  // The arcade fruit order and values must be untouched by any of this.
+  // They must survive a long stretch of play, and a death.
+  game.setState(STATE.PLAYING);
+  for (let i = 0; i < 60 * 60; i++) game.step(DT);
+  eq(game.fruits.length, 3, 'still there after a minute');
+
+  const b = game.ghosts.blinky;
+  b.state = 'hunting';
+  b.frightened = false;
+  b.x = game.pacman.x;
+  b.y = game.pacman.y;
+  game.setState(STATE.PLAYING);
+  for (let i = 0; i < 60 * 6; i++) game.step(DT);
+  eq(game.fruits.length, 3, 'a death does not clear the level fruit');
+
+  // A fresh level re-places them.
+  game.startLevel(2);
+  eq(game.fruits.length, 3, 'the next level gets its own three');
+  eq(placements, 2, 'one placement event for the new level');
+
+  // Collecting one scores its own value and records it.
+  const before = game.score;
+  const target = game.fruits[0];
+  game.setState(STATE.PLAYING);
+  game.pacman.x = target.x;
+  game.pacman.y = target.y;
+  game.step(DT);
+  eq(game.fruits.length, 2, 'the collected fruit is removed');
+  eq(game.score - before, target.def.points, 'it scored its own value');
+  eq(game.fruitHistory.length, 1, 'recorded in the HUD history');
+
+  // The arcade item table must be untouched by any of this.
   const expected = [
     ['cherry', 100],
     ['strawberry', 300],
@@ -349,13 +298,148 @@ section('three fruits per level, coexisting');
     eq(FRUITS[i].id, id, `fruit ${i + 1} is the ${id}`);
     eq(FRUITS[i].points, pts, `${id} scores ${pts}`);
   });
-  for (const [lvl, id] of [[1, 'cherry'], [2, 'strawberry'], [3, 'orange'], [4, 'orange'],
-                           [5, 'apple'], [7, 'melon'], [9, 'galaxian'], [11, 'bell'], [13, 'key']]) {
+  const perLevel = [[1, 'cherry'], [2, 'strawberry'], [3, 'orange'], [4, 'orange'],
+                    [5, 'apple'], [7, 'melon'], [9, 'galaxian'], [11, 'bell'], [13, 'key']];
+  for (const [lvl, id] of perLevel) {
     eq(levelConfig(lvl).fruit.id, id, `level ${lvl} fruit is the ${id}`);
   }
 }
 
-// -------------------------------------------------------- scoring & scoring
+section('jump and scout');
+{
+  const { JUMPS_PER_LEVEL, SCOUTS_PER_LEVEL } = await import('../src/core/game.js');
+  eq(JUMPS_PER_LEVEL, 3, 'three jumps per level');
+  eq(SCOUTS_PER_LEVEL, 3, 'three scouts per level');
+
+  const land = (g) => {
+    let guard = 0;
+    while (g.jumpTimer > 0 && guard++ < 1000) g.step(DT);
+  };
+
+  const game = createGame({ seed: 77 });
+  game.startGame();
+  game.setState(STATE.PLAYING);
+  eq(game.jumpsLeft, 3, 'starts with three jumps');
+  eq(game.scoutsLeft, 3, 'starts with three scouts');
+
+  ok(game.tryJump(), 'first jump takes');
+  ok(!game.tryJump(), 'no double jump while airborne');
+  land(game);
+  ok(game.tryJump(), 'second jump takes');
+  land(game);
+  ok(game.tryJump(), 'third jump takes');
+  land(game);
+  ok(!game.tryJump(), 'fourth jump is refused');
+  eq(game.jumpsLeft, 0, 'budget exhausted');
+
+  // The arc leaves and returns to the ground.
+  const g2 = createGame({ seed: 5 });
+  g2.startGame();
+  g2.setState(STATE.PLAYING);
+  g2.tryJump();
+  let peak = 0;
+  let guard = 0;
+  while (g2.jumpTimer > 0 && guard++ < 1000) {
+    g2.step(DT);
+    peak = Math.max(peak, g2.airborne);
+  }
+  ok(peak > 0.9, 'the hop clears a useful height', peak.toFixed(2));
+  eq(g2.airborne, 0, 'and lands back on the ground');
+
+  // A well-timed jump carries him over a hunting ghost.
+  const clear = createGame({ seed: 9 });
+  clear.startGame();
+  clear.setState(STATE.PLAYING);
+  let cleared = 0;
+  let died = 0;
+  clear.on('ghostCleared', () => cleared++);
+  clear.on('death', () => died++);
+  clear.tryJump();
+  let g3 = 0;
+  while (clear.airborne < 0.9 && g3++ < 1000) clear.step(DT);
+  const gh = clear.ghosts.blinky;
+  gh.state = 'hunting';
+  gh.frightened = false;
+  gh.x = clear.pacman.x;
+  gh.y = clear.pacman.y;
+  clear.step(DT);
+  eq(died, 0, 'jumping over a ghost is not fatal');
+  ok(cleared >= 1, 'and it reports the clear', `${cleared}`);
+
+  // Grounded, the same contact kills.
+  const hit = createGame({ seed: 9 });
+  hit.startGame();
+  hit.setState(STATE.PLAYING);
+  let deaths = 0;
+  hit.on('death', () => deaths++);
+  const gh2 = hit.ghosts.blinky;
+  gh2.state = 'hunting';
+  gh2.frightened = false;
+  gh2.x = hit.pacman.x;
+  gh2.y = hit.pacman.y;
+  hit.step(DT);
+  eq(deaths, 1, 'the same contact on the ground is fatal');
+
+  // A frightened ghost is still eaten in the air: a good jump should not cost
+  // the bonus.
+  const air = createGame({ seed: 3 });
+  air.startGame();
+  air.setState(STATE.PLAYING);
+  let eatenPoints = 0;
+  air.on('ghostEaten', (e) => (eatenPoints += e.points));
+  air.frightTimer = 8;
+  air.frightTotal = 8;
+  air.tryJump();
+  let g4 = 0;
+  while (air.airborne < 0.9 && g4++ < 1000) air.step(DT);
+  const gf = air.ghosts.blinky;
+  gf.state = 'hunting';
+  gf.frightened = true;
+  gf.frightTimer = 8;
+  gf.x = air.pacman.x;
+  gf.y = air.pacman.y;
+  air.step(DT);
+  eq(eatenPoints, 200, 'a frightened ghost still scores while airborne');
+
+  // Scout: three per level, and the blend ramps up and back down.
+  const sc = createGame({ seed: 11 });
+  sc.startGame();
+  sc.setState(STATE.PLAYING);
+  eq(sc.scoutBlend(), 0, 'no scout blend at rest');
+  ok(sc.tryScout(), 'scout takes');
+  ok(!sc.tryScout(), 'cannot re-scout while one is running');
+  let maxBlend = 0;
+  let g5 = 0;
+  while (sc.scoutTimer > 0 && g5++ < 2000) {
+    sc.step(DT);
+    maxBlend = Math.max(maxBlend, sc.scoutBlend());
+  }
+  ok(maxBlend > 0.99, 'the scout reaches the full board view', maxBlend.toFixed(2));
+  eq(sc.scoutBlend(), 0, 'and returns to the play camera');
+  eq(sc.scoutsLeft, 2, 'one scout spent');
+
+  // Both budgets reset on a new level but survive a death.
+  const rst = createGame({ seed: 13 });
+  rst.startGame();
+  rst.setState(STATE.PLAYING);
+  rst.tryJump();
+  land(rst);
+  rst.tryScout();
+  eq(rst.jumpsLeft, 2, 'a jump was spent');
+  eq(rst.scoutsLeft, 2, 'a scout was spent');
+  const bl = rst.ghosts.blinky;
+  bl.state = 'hunting';
+  bl.frightened = false;
+  bl.x = rst.pacman.x;
+  bl.y = rst.pacman.y;
+  rst.setState(STATE.PLAYING);
+  for (let i = 0; i < 60 * 6; i++) rst.step(DT);
+  eq(rst.jumpsLeft, 2, 'a death does not refill the jump budget');
+  rst.startLevel(2);
+  eq(rst.jumpsLeft, 3, 'a new level refills jumps');
+  eq(rst.scoutsLeft, 3, 'a new level refills scouts');
+  eq(rst.airborne, 0, 'and nobody starts a level mid-hop');
+}
 
 section('scoring rules');
 {

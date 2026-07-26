@@ -134,8 +134,34 @@ export function createRenderer(canvas, game, tierName) {
     0.1,
     900
   );
-  camera.position.set(0, 30, 22);
-  camera.lookAt(MAZE_CENTRE);
+  /**
+   * The camera lives at the local origin of a rig, and the controller moves the
+   * RIG rather than the camera.
+   *
+   * This is the shape a WebXR session needs: in XR the runtime writes the camera's
+   * own position and quaternion from the headset every frame, so any code that
+   * assigns camera.position is overwritten and fights the pose. With a rig, the
+   * head pose composes on top of the game's framing and every camera mode here
+   * keeps working as-is.
+   */
+  const playerRig = new THREE.Group();
+  playerRig.add(camera);
+  scene.add(playerRig);
+  playerRig.position.set(0, 30, 22);
+
+  /**
+   * Scratch object used to turn a position/target pair into a rig orientation.
+   *
+   * Deliberately a Camera, not a plain Object3D: Object3D.lookAt aims +Z at the
+   * target, while cameras look down -Z, so a plain object yields an orientation
+   * pointing exactly the wrong way. three switches convention on `isCamera`.
+   */
+  const rigAim = new THREE.PerspectiveCamera();
+
+  // Comfort mode: for a headset. Baked depth of field reads as permanent blur
+  // because the viewer's eyes accommodate naturally, and shake or a moving field
+  // of view are established causes of discomfort.
+  let comfort = false;
 
   const env = createEnvironment(scene, renderer, quality, camera);
 
@@ -292,7 +318,7 @@ export function createRenderer(canvas, game, tierName) {
     // Ease the lens toward the mode's field of view before anything is solved
     // against it, so the framing and the projection never disagree for a frame.
     const targetFov = MODE_FOV[cam.mode] ?? MODE_FOV.overview;
-    if (Math.abs(camera.fov - targetFov) > 0.01) {
+    if ((game.scoutTimer ?? 0) <= 0 && Math.abs(camera.fov - targetFov) > 0.01) {
       camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 4);
       camera.updateProjectionMatrix();
     }
@@ -355,6 +381,26 @@ export function createRenderer(canvas, game, tierName) {
       desiredLook.set(driftX * 0.55, 0.9, driftZ * 0.5);
     }
 
+    // Scout: blend the active framing toward the full-board overview and back.
+    // The simulation keeps running, so this is a look, not a pause.
+    const scout = game.scoutBlend ? game.scoutBlend() : 0;
+    if (scout > 0) {
+      const overviewTilt = THREE.MathUtils.degToRad(46);
+      const dist = fitDistance(
+        { fov: MODE_FOV.overview, aspect: camera.aspect, near: camera.near, far: camera.far },
+        overviewTilt,
+        1.06,
+        cam.yaw
+      );
+      const horiz = Math.cos(overviewTilt) * dist;
+      tmpVec.set(Math.sin(cam.yaw) * horiz, Math.sin(overviewTilt) * dist, Math.cos(cam.yaw) * horiz);
+      desiredPos.lerp(tmpVec, scout);
+      tmpVec.set(0, 0.4, 0);
+      desiredLook.lerp(tmpVec, scout);
+      camera.fov += (MODE_FOV.overview - camera.fov) * scout * Math.min(1, dt * 6);
+      camera.updateProjectionMatrix();
+    }
+
     const ease =
       cam.mode === 'chase' || cam.mode === 'firstPerson'
         ? 1 - Math.pow(0.0004, dt)
@@ -362,7 +408,12 @@ export function createRenderer(canvas, game, tierName) {
     cam.pos.lerp(desiredPos, ease);
     cam.look.lerp(desiredLook, ease);
 
-    if (cam.shake > 0.0001) {
+    // Aim the RIG, never the camera: see the playerRig comment above.
+    rigAim.position.copy(cam.pos);
+    rigAim.lookAt(cam.look);
+    playerRig.quaternion.copy(rigAim.quaternion);
+
+    if (!comfort && cam.shake > 0.0001) {
       cam.shake = Math.max(0, cam.shake - dt * 2.4);
       const s = cam.shake * cam.shake;
       tmpVec.set(
@@ -370,13 +421,13 @@ export function createRenderer(canvas, game, tierName) {
         (Math.random() - 0.5) * s * 2.4,
         (Math.random() - 0.5) * s * 2.4
       );
-      camera.position.copy(cam.pos).add(tmpVec);
+      playerRig.position.copy(cam.pos).add(tmpVec);
     } else {
-      camera.position.copy(cam.pos);
+      cam.shake = 0;
+      playerRig.position.copy(cam.pos);
     }
-    camera.lookAt(cam.look);
 
-    if (cam.fovPunch > 0.0001) {
+    if (!comfort && cam.fovPunch > 0.0001) {
       cam.fovPunch = Math.max(0, cam.fovPunch - dt * 3.2);
       camera.fov = targetFov - cam.fovPunch * 5;
       camera.updateProjectionMatrix();
@@ -477,8 +528,10 @@ export function createRenderer(canvas, game, tierName) {
     mazeMesh.update(time, game.frightTimer > 0);
 
     const death = game.state === STATE.DYING ? game.deathProgress : 0;
-    pacman.update(game.pacman, time, death);
-    if (reflectionRig.visible && reflPacman) reflPacman.update(game.pacman, time, death);
+    pacman.update(game.pacman, time, death, game.airborne);
+    if (reflectionRig.visible && reflPacman) {
+      reflPacman.update(game.pacman, time, death, game.airborne);
+    }
 
     // The arcade blinks for a fixed number of cycles at the end of every power
     // pellet, so the phase comes from the simulation's flash window rather than
@@ -541,9 +594,8 @@ export function createRenderer(canvas, game, tierName) {
     if (post.hasDof) {
       const fx = worldX(game.pacman.x);
       const fz = worldZ(game.pacman.y);
-      post.setFocus(
-        Math.hypot(camera.position.x - fx, camera.position.y - 0.45, camera.position.z - fz)
-      );
+      camera.getWorldPosition(tmpVec);
+      post.setFocus(Math.hypot(tmpVec.x - fx, tmpVec.y - 0.45, tmpVec.z - fz));
     }
 
     post.update(dt, time);
@@ -611,10 +663,29 @@ export function createRenderer(canvas, game, tierName) {
     get cameraMode() {
       return cam.mode;
     },
+    /** The rig the camera hangs from. An XR session should reposition THIS. */
+    playerRig,
+    /**
+     * Switches off the flat-screen-only effects for headset use: baked depth of
+     * field, camera shake and field-of-view punches.
+     */
+    setComfortMode(on) {
+      comfort = on;
+      post.setDof(!on && !!quality.dof);
+      if (on) {
+        cam.shake = 0;
+        cam.fovPunch = 0;
+      }
+    },
+    get comfortMode() {
+      return comfort;
+    },
     shake(amount) {
+      if (comfort) return;
       cam.shake = Math.min(1.4, cam.shake + amount);
     },
     punch(amount) {
+      if (comfort) return;
       cam.fovPunch = Math.min(1.2, cam.fovPunch + amount);
     },
     resetPellets() {

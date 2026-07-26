@@ -721,7 +721,9 @@ export function createEnvironment(scene, renderer, quality, camera) {
     update(time) {
       // Keeping the dome centred on the camera makes vDir an exact view ray,
       // so the sun disc never skews as the camera moves.
-      if (camera) sky.position.copy(camera.position);
+      // World position: the camera is nested inside the player rig now, and in an
+      // XR session the headset offsets it further still.
+      if (camera) camera.getWorldPosition(sky.position);
       sky.material.uniforms.time.value = time;
       grid.material.uniforms.time.value = time;
       if (motes && motes.visible) motes.material.uniforms.time.value = time;

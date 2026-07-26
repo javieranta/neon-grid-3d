@@ -16,8 +16,8 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./icon-180.png" />
-    <script type="module" crossorigin src="./assets/index-CMz-2e_X.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-C0gdqij-.css">
+    <script type="module" crossorigin src="./assets/index-BuL2WSiI.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-COvJ9pU4.css">
   </head>
   <body>
     <canvas id="scene"></canvas>
@@ -50,6 +50,20 @@
       <!-- ghost telemetry -->
       <aside id="ghost-list" class="ghosts"></aside>
 
+      <!-- limited abilities, both per level -->
+      <aside id="abilities" class="abilities">
+        <div class="ability" id="ability-jump">
+          <span class="ability-key">SPACE</span>
+          <span class="ability-name">JUMP</span>
+          <span class="ability-pips"></span>
+        </div>
+        <div class="ability" id="ability-scout">
+          <span class="ability-key">Q</span>
+          <span class="ability-name">SCOUT</span>
+          <span class="ability-pips"></span>
+        </div>
+      </aside>
+
       <!-- power pellet timer -->
       <div id="fright-bar" class="fright">
         <span id="fright-fill"></span>
@@ -70,7 +84,7 @@
         <button id="btn-start" class="cta">INSERT COIN</button>
         <div class="hints">
           <span><b>WASD</b> / <b>ARROWS</b> steer · <b>MOUSE L/R</b> or <b>Q</b>/<b>E</b> turn · <b>SWIPE</b> on touch</span>
-          <span><b>P</b> pause · <b>C</b> camera · <b>M</b> sound · <b>F</b> fullscreen</span>
+          <span><b>SPACE</b> jump ×3 · <b>Q</b> scout ×3 · <b>P</b> pause · <b>C</b> camera · <b>M</b> sound · <b>F</b> fullscreen</span>
         </div>
         <div class="legend">
           <span class="lg lg-blaze">BLAZE hunts you head-on</span>
