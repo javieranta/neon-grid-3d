@@ -34,11 +34,19 @@ tricks stacked deliberately:
 
 - **Wall silhouettes, not cubes.** Each connected wall region's true outline is extracted
   by marching-edge boundary tracing, corner-rounded, and extruded into a bevelled slab.
-  The arcade's *double-line* wall is reproduced by running two neon tubes — one on the
-  silhouette, one inset — as real swept tube geometry, so the neon has thickness and
-  catches light.
-- **A magenta-to-cyan depth gradient** painted into the tube vertex colours, so the maze
-  reads as a gradient from hot pink at the near edge to ice cyan at the far edge.
+  Every kerb then carries **three** swept neon tubes — cyan on the silhouette, magenta on
+  an inset partner line, and a magenta rule at waist height — plus vertical strips down
+  the faces, so the neon has real thickness and reads from any angle.
+- **The maze lights itself.** A cube render from the middle of the board is PMREM-filtered
+  into the scene environment, so every glossy surface reflects the maze's own neon. That is
+  what produces the wet-black look; with only the sky to reflect, the walls read matte. The
+  sun is masked during the bake — it is orders of magnitude brighter than the neon and would
+  dominate every reflection.
+- **Low kerbs.** Walls are well under a tile tall. At the game's camera angle a tile-tall
+  wall occludes more than a tile of floor behind it, which made whole runs of pellets look
+  unreachable even though they never were. In first person the same geometry stretches into
+  full-height corridors, with the tubes translated rather than scaled so their cross-sections
+  stay round.
 - **Baked light spill.** The same silhouettes are stroked into a blurred canvas and used
   as the floor's emissive, so the neon appears to bleed onto the ground — a cheap, stable
   stand-in for global illumination.
@@ -50,9 +58,13 @@ tricks stacked deliberately:
 - **Environment:** shader sky with a banded sun, star field, a distance-LOD infinite grid,
   layered mountain ridges with neon rims, drifting motes and slow volumetric shafts.
 
-Three cameras: a framed **overview** that always fits the whole maze at any aspect ratio,
-a dramatic **chase** cam, and a **cinematic** sweep that drops low enough to put the
-setting sun dead centre behind the ridgeline.
+Four cameras, each with its own field of view: a framed **overview** that fits the whole
+maze at any aspect ratio and sits below half the FOV so the sunset stays in shot, a
+three-quarter **chase** cam, a **first-person** view inside the corridors — the mode the
+planned VR port will use — and a **cinematic** sweep composed for the sunset.
+
+Depth of field is deliberately absent. It suits a still, but a headset renders per eye and
+the viewer's own eyes accommodate, so baked DoF in VR reads as blur.
 
 ![Sunset](media/cinematic.png)
 
@@ -71,9 +83,9 @@ A-minor progression. Intensity rises with the level.
 | Action | Desktop | Touch |
 |---|---|---|
 | Move | WASD / arrows | swipe anywhere, or the thumb pad |
+| Camera cycle | C | ◎ button (overview → chase → first person → cinematic) |
 | Start / resume | Enter or Space | tap |
 | Pause | P or Esc | ❚❚ button |
-| Camera | C | ◎ button |
 | Sound | M | ♪ button |
 | Fullscreen | F | ⛶ button |
 
@@ -89,7 +101,7 @@ automatically by a frame-time watchdog if a device misses budget. The tiers trad
 shadows, reflections, mote count, light count, bloom, tube tessellation and pixel ratio;
 the neon look survives all the way down.
 
-Typical desktop GPU: ~420k triangles, ~170 draw calls at the ultra tier.
+Typical desktop GPU: ~640k triangles, ~275 draw calls at the ultra tier.
 
 ## Developing
 
@@ -97,8 +109,9 @@ Typical desktop GPU: ~420k triangles, ~170 draw calls at the ultra tier.
 npm install
 npm run dev            # vite dev server
 npm run build          # static build into docs/ (what GitHub Pages serves)
-npm test               # 153 headless simulation assertions
-npm run test:e2e       # 31 browser assertions, desktop + iPhone viewports
+npm test               # 158 assertions: simulation + geometry/grid agreement
+npm run test:e2e       # 32 browser assertions, desktop + iPhone viewports
+npm run gallery        # renders the still gallery under media/
 ```
 
 The test suites are the interesting part:
@@ -111,6 +124,10 @@ The test suites are the interesting part:
   screenshots in-process, and asserts on *pixels*: that magenta and cyan neon are actually
   present, that the whole maze fits a portrait iPhone viewport, that the touch pad works,
   that no JavaScript errors occur across a soak.
+- **`tests/geometry.test.mjs`** checks that the traced wall silhouettes agree with the
+  logical grid — that no collectible sits inside a wall, none is stranded in an isolated
+  pocket, and every one keeps visual clearance from the neon. Written after a report that
+  some pellets looked unreachable: they never were, but tall walls were hiding them.
 - **`tests/maze-preview.mjs`** renders the maze grid in the original's own 8-pixel style so
   the layout can be compared against a reference screenshot tile by tile.
 

@@ -276,7 +276,7 @@ function panelTexture() {
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, size, size);
 
-  ctx.strokeStyle = 'rgba(150, 90, 255, 0.5)';
+  ctx.strokeStyle = 'rgba(150, 95, 255, 0.14)';
   ctx.lineWidth = 1;
   for (let y = 4; y < size; y += 8) {
     ctx.beginPath();
@@ -284,15 +284,15 @@ function panelTexture() {
     ctx.lineTo(size, y + 0.5);
     ctx.stroke();
   }
-  ctx.strokeStyle = 'rgba(215, 150, 255, 0.95)';
-  ctx.lineWidth = 2;
-  for (let y = 0; y < size; y += 32) {
+  ctx.strokeStyle = 'rgba(215, 150, 255, 0.9)';
+  ctx.lineWidth = 3;
+  for (let y = 0; y < size; y += 84) {
     ctx.beginPath();
     ctx.moveTo(0, y + 0.5);
     ctx.lineTo(size, y + 0.5);
     ctx.stroke();
   }
-  ctx.strokeStyle = 'rgba(0, 220, 255, 0.28)';
+  ctx.strokeStyle = 'rgba(0, 230, 255, 0.2)';
   for (let x = 0; x < size; x += 64) {
     ctx.beginPath();
     ctx.moveTo(x + 0.5, 0);
@@ -304,9 +304,10 @@ function panelTexture() {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  // A tighter vertical repeat: the side faces are short, and at 0.5 they only
-  // showed a fraction of one tile, so the panel seams never read.
-  tex.repeat.set(0.5, 3);
+  // Enough vertical repeat for a handful of seams across a wall face, and no
+  // more: at 3 the faces filled with dozens of stripes and read as a hypnotic
+  // tunnel rather than as panelling.
+  tex.repeat.set(0.5, 1.1);
   tex.anisotropy = 4;
   return tex;
 }
@@ -482,8 +483,10 @@ export function buildMaze(maze, quality) {
     // a sun, so there is no single lobe to blow out.
     envMapIntensity: 0.7,
     emissiveMap: panel,
-    emissive: new THREE.Color(0x6a4bff),
-    emissiveIntensity: 0.07,
+    emissive: new THREE.Color(0xa25cff),
+    // Safe to run bright now that the emissive term is masked to vertical faces:
+    // the corridor walls read as backlit panels while the tops stay mirrors.
+    emissiveIntensity: 0.5,
   });
 
   // Light spill down the wall sides. In the reference art the black acrylic is
@@ -805,11 +808,11 @@ export function buildMaze(maze, quality) {
       gateMat.opacity = 0.3 + 0.16 * Math.sin(time * 3.4);
       if (frightened) {
         // Cool the whole maze down while an energizer is active.
-        slabMat.emissive.setHex(0x4b6dff);
-        slabMat.emissiveIntensity = 0.5 + 0.2 * Math.sin(time * 9);
+        slabMat.emissive.setHex(0x5f7cff);
+        slabMat.emissiveIntensity = 0.9 + 0.3 * Math.sin(time * 9);
       } else {
-        slabMat.emissive.setHex(0x6a4bff);
-        slabMat.emissiveIntensity = 0.07;
+        slabMat.emissive.setHex(0xa25cff);
+        slabMat.emissiveIntensity = 0.5;
       }
     },
     dispose() {
