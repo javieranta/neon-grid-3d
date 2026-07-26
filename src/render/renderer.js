@@ -37,7 +37,7 @@ export const CAMERA_MODES = ['overview', 'chase', 'firstPerson', 'cinematic'];
  * corridor drama the reference art has, and first-person sits near the 75-80
  * degrees a headset presents per eye, which keeps the VR port honest.
  */
-const MODE_FOV = { overview: 62, chase: 68, firstPerson: 78, cinematic: 60 };
+const MODE_FOV = { overview: 62, chase: 68, firstPerson: 72, cinematic: 60 };
 
 /* ------------------------------------------------------------- camera framing */
 
@@ -295,8 +295,8 @@ export function createRenderer(canvas, game, tierName) {
       const dirVec = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[pac.dir] ?? [-1, 0];
       const bob = Math.sin(time * 11) * 0.022;
       // Slightly ahead of centre so the near clip never grazes his own shell.
-      desiredPos.set(px + dirVec[0] * 0.22, 0.5 + bob, pz + dirVec[1] * 0.22);
-      desiredLook.set(px + dirVec[0] * 5, 0.44 + Math.sin(time * 5.5) * 0.02, pz + dirVec[1] * 5);
+      desiredPos.set(px + dirVec[0] * 0.2, 0.52 + bob, pz + dirVec[1] * 0.2);
+      desiredLook.set(px + dirVec[0] * 5, 0.5 + Math.sin(time * 5.5) * 0.02, pz + dirVec[1] * 5);
       if (Math.abs(px - cam.lastPacX) > 8) {
         cam.pos.copy(desiredPos);
         cam.look.copy(desiredLook);
@@ -443,6 +443,15 @@ export function createRenderer(canvas, game, tierName) {
     // In first person Pac-Man IS the camera, so his shell, light pool and
     // reflection all have to go or they fill the frame from the inside.
     const fpv = cam.mode === 'firstPerson';
+    // The kerbs are deliberately low so the overview camera can see over them,
+    // but from inside the maze that leaves no corridor at all. Stretching the
+    // wall group vertically (it is extruded up from y=0) turns the same geometry
+    // into full-height walls, eased so the mode change does not pop.
+    const wallStretch = fpv ? 2.6 : 1;
+    const g = mazeMesh.group;
+    g.scale.y += (wallStretch - g.scale.y) * Math.min(1, dt * 5);
+    if (mazeMesh.mirror) mazeMesh.mirror.scale.y = -g.scale.y;
+
     pacman.root.visible = !fpv;
     pacman.pool.visible = !fpv;
     if (reflPacman) reflPacman.root.visible = !fpv;

@@ -509,7 +509,7 @@ export function createPellets(maze, quality) {
 
   // Halo pass: the same instances, scaled up and additive, so each dot reads as
   // a glowing orb rather than a flat disc once bloom gets hold of it.
-  const haloGeo = new THREE.SphereGeometry(0.15, 8, 6);
+  const haloGeo = new THREE.SphereGeometry(0.15, 14, 10);
   const haloMat = new THREE.MeshBasicMaterial({
     color: 0xffd873,
     transparent: true,

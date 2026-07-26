@@ -341,16 +341,17 @@ function buildPalm(seed, height) {
     const outer = Math.PI * 0.5 - 0.16 + rand(i + 33) * 0.16;
     const droop = outer + 0.5 + rand(i + 51) * 0.22;
     let anchor = crown.clone();
+    // Broad blades: thin ones silhouette as spikes rather than fronds.
     for (const [seg, angle, width] of [
-      [0.58, outer, 0.24],
-      [0.42, droop, 0.16],
+      [0.58, outer, 0.32],
+      [0.42, droop, 0.2],
     ]) {
       const segLen = len * seg;
       const geo = new THREE.CylinderGeometry(segLen * width * 0.4, segLen * width, segLen, 4, 1, true);
       geo.translate(0, segLen / 2, 0);
       const rot = new THREE.Euler(angle, a, 0, 'YXZ');
-      stamp(geo, anchor.clone(), rot, new THREE.Vector3(1, 1, 0.42), bodyParts);
-      stamp(geo, anchor.clone(), rot, new THREE.Vector3(1.14, 1.0, 0.5), rimParts);
+      stamp(geo, anchor.clone(), rot, new THREE.Vector3(1, 1, 0.6), bodyParts);
+      stamp(geo, anchor.clone(), rot, new THREE.Vector3(1.12, 1.0, 0.68), rimParts);
       const dir = new THREE.Vector3(0, 1, 0).applyEuler(rot);
       anchor = anchor.clone().add(dir.multiplyScalar(segLen));
       geo.dispose();
