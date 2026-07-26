@@ -373,6 +373,7 @@ export function buildMaze(maze, quality) {
   const cyanTubeGeos = [];
   const magentaTubeGeos = [];
   const baseTubeGeos = [];
+  const midTubeGeos = [];
   const stripGeos = [];
   const glowLoops = [];
 
@@ -420,6 +421,16 @@ export function buildMaze(maze, quality) {
       baseTubeGeos.push(
         tubeFromPolyline(poly, 0.07, TUBE_RADIUS * 0.7, Math.max(4, quality.tubeRadial - 2))
       );
+      // Waist-high rule. Barely visible from above; from inside the corridor it
+      // is the line that defines the wall, as in the reference art.
+      midTubeGeos.push(
+        tubeFromPolyline(
+          poly,
+          WALL_HEIGHT * 0.52,
+          TUBE_RADIUS * 0.5,
+          Math.max(4, quality.tubeRadial - 3)
+        )
+      );
       // Vertical neon strips down the wall face, spaced along the silhouette.
       // Barely visible from above, but once the walls stretch for first-person
       // they become the eye-level pipes the reference art has.
@@ -453,6 +464,7 @@ export function buildMaze(maze, quality) {
   const cyanTubeGeo = merge(cyanTubeGeos);
   const magentaTubeGeo = merge(magentaTubeGeos);
   const baseTubeGeo = merge(baseTubeGeos);
+  const midTubeGeo = merge(midTubeGeos);
   const stripGeo = merge(stripGeos);
 
   const panel = panelTexture();
@@ -531,6 +543,15 @@ export function buildMaze(maze, quality) {
   const stripMesh = stripGeo ? new THREE.Mesh(stripGeo, stripMat) : null;
   if (stripMesh) group.add(stripMesh);
 
+  const midMat = new THREE.MeshBasicMaterial({
+    color: 0xff4fdc,
+    toneMapped: false,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const midMesh = midTubeGeo ? new THREE.Mesh(midTubeGeo, midMat) : null;
+  if (midMesh) group.add(midMesh);
+
   // No additive shells around the tubes: scaling a swept ring on one axis
   // stretches it into tall soft ghosts that wash the whole frame from a low
   // camera. Bloom supplies the halo, and it respects the geometry.
@@ -551,9 +572,20 @@ export function buildMaze(maze, quality) {
   group.add(gate);
 
   // ------------------------------------------------------------- floor stack
-  // Registered with setStretch: [slab, tubes to lift, vertical strips].
+  // Registered with setStretch. Each entry pairs a slab with the meshes that must
+  // be lifted when it grows, and the fraction of the wall height each sits at.
   let stretch = 1;
-  const stretchTargets = [[slabMesh, [cyanMesh, magentaMesh], stripMesh]];
+  const stretchTargets = [
+    {
+      slab: slabMesh,
+      lifts: [
+        [cyanMesh, 1],
+        [magentaMesh, 1],
+        ...(midMesh ? [[midMesh, 0.52]] : []),
+      ],
+      strips: stripMesh,
+    },
+  ];
 
   const glow = bakeGlowMap(glowLoops, quality.glowMapSize);
   const floorGroup = new THREE.Group();
@@ -721,7 +753,7 @@ export function buildMaze(maze, quality) {
       })
     );
     mirror.add(mSlab, mTube, mTube2, mBase);
-    stretchTargets.push([mSlab, [mTube, mTube2], null]);
+    stretchTargets.push({ slab: mSlab, lifts: [[mTube, 1], [mTube2, 1]], strips: null });
     // Transparent draw order is renderOrder first, so the reflection is
     // guaranteed to land underneath the semi-transparent floor.
     mirror.children.forEach((c) => (c.renderOrder = -2));
@@ -749,10 +781,10 @@ export function buildMaze(maze, quality) {
       const k = stretch + (target - stretch) * Math.min(1, dt * 5);
       if (Math.abs(k - stretch) < 1e-4 && Math.abs(k - target) < 1e-4) return;
       stretch = k;
-      const lift = (k - 1) * WALL_HEIGHT;
-      for (const [slab, tubes, strips] of stretchTargets) {
+      const grow = (k - 1) * WALL_HEIGHT;
+      for (const { slab, lifts, strips } of stretchTargets) {
         slab.scale.y = k;
-        for (const t of tubes) t.position.y = lift;
+        for (const [mesh, frac] of lifts) mesh.position.y = grow * frac;
         if (strips) strips.scale.y = k;
       }
     },
@@ -769,6 +801,7 @@ export function buildMaze(maze, quality) {
       // Subtle breathing on the floor-level line only; touching the main tube
       // colours would wash their hues out once bloom lifts the cores.
       baseTubeMat.opacity = 0.72 + 0.14 * Math.sin(time * 2.1);
+      midMat.opacity = 0.78 + 0.14 * Math.sin(time * 2.1 + 1.2);
       gateMat.opacity = 0.3 + 0.16 * Math.sin(time * 3.4);
       if (frightened) {
         // Cool the whole maze down while an energizer is active.
@@ -783,6 +816,7 @@ export function buildMaze(maze, quality) {
       slabGeo.dispose();
       cyanTubeGeo.dispose();
       if (stripGeo) stripGeo.dispose();
+      if (midTubeGeo) midTubeGeo.dispose();
       magentaTubeGeo.dispose();
       baseTubeGeo.dispose();
       glow.texture.dispose();

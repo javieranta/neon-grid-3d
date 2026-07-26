@@ -318,8 +318,15 @@ export function createRenderer(canvas, game, tierName) {
       desiredLook.set(0, 2.6 + sweep * 1.6, -6);
     } else if (cam.mode === 'chase') {
       const dirVec = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[pac.dir] ?? [-1, 0];
-      desiredPos.set(px - dirVec[0] * 5.2, 3.4, pz - dirVec[1] * 5.2);
-      desiredLook.set(px + dirVec[0] * 3.2, 0.35, pz + dirVec[1] * 3.2);
+      // Trailing at three-quarters rather than dead astern: directly behind him
+      // his mouth - the thing that makes him readable - is never in shot.
+      const perp = [-dirVec[1], dirVec[0]];
+      desiredPos.set(
+        px - dirVec[0] * 4.4 + perp[0] * 2.6,
+        3.1,
+        pz - dirVec[1] * 4.4 + perp[1] * 2.6
+      );
+      desiredLook.set(px + dirVec[0] * 2.4, 0.4, pz + dirVec[1] * 2.4);
       // Pac-Man teleports by a full maze width at the side tunnel; lerping
       // through that jump whip-pans the camera across the middle of the board,
       // through the walls, every time the player uses the tunnel.

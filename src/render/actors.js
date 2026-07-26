@@ -398,14 +398,16 @@ export function createGhost(id, quality) {
   const auraMat = new THREE.MeshBasicMaterial({
     color: meta.glow,
     transparent: true,
-    opacity: 0.16,
+    // Strong enough to carry the skirt: the Fresnel rim fires on the silhouette
+    // but the hem had nothing else, so it sank into the dark at low angles.
+    opacity: 0.3,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.BackSide,
     toneMapped: false,
   });
-  const aura = new THREE.Mesh(new THREE.SphereGeometry(GHOST_R * 1.32, 20, 14), auraMat);
-  aura.position.y = -0.08;
+  const aura = new THREE.Mesh(new THREE.SphereGeometry(GHOST_R * 1.42, 22, 16), auraMat);
+  aura.position.y = -0.13;
   body.add(aura);
 
   // Eyes.
