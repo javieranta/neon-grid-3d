@@ -172,6 +172,8 @@ export function createRenderer(canvas, game, tierName) {
   reflectionRig.position.y = -0.008;
   world.add(reflectionRig);
 
+  reflectionRig.add(pellets.reflection);
+
   let reflPacman = null;
   const reflGhosts = {};
   if (quality.reflectActors) {
@@ -437,18 +439,14 @@ export function createRenderer(canvas, game, tierName) {
     // In first person Pac-Man IS the camera, so his shell, light pool and
     // reflection all have to go or they fill the frame from the inside.
     const fpv = cam.mode === 'firstPerson';
-    // The kerbs are deliberately low so the overview camera can see over them,
-    // but from inside the maze that leaves no corridor at all. Stretching the
-    // wall group vertically (it is extruded up from y=0) turns the same geometry
-    // into full-height walls, eased so the mode change does not pop.
-    const wallStretch = fpv ? 2.6 : 1;
-    const g = mazeMesh.group;
-    g.scale.y += (wallStretch - g.scale.y) * Math.min(1, dt * 5);
-    if (mazeMesh.mirror) mazeMesh.mirror.scale.y = -g.scale.y;
+    mazeMesh.setStretch(fpv ? 3.1 : 1, dt);
 
-    pacman.root.visible = !fpv;
+    // The shell goes, the lamp stays: in first person Pac-Man's own point light
+    // is what lights the corridor walls around the player.
+    pacman.setBodyVisible(!fpv);
     pacman.pool.visible = !fpv;
     if (reflPacman) reflPacman.root.visible = !fpv;
+    pellets.reflection.visible = reflectionRig.visible;
 
     // Hide the actors during the level-clear flash for the classic blink.
     const clearing = game.state === STATE.LEVEL_CLEAR;

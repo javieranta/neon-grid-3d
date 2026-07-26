@@ -194,6 +194,15 @@ export function createPacman(quality) {
       if (light) light.visible = on;
     },
     /**
+     * Hides the shell without hiding the point light, so in first person - where
+     * the camera IS Pac-Man - his lamp still lights the corridor walls.
+     */
+    setBodyVisible(on) {
+      upper.visible = on;
+      lower.visible = on;
+      halo.visible = on;
+    },
+    /**
      * @param {object} pac   game pacman actor
      * @param {number} time
      * @param {number} death 0..1 death animation progress
@@ -400,6 +409,25 @@ export function createGhost(id, quality) {
   }
   root.add(eyes);
 
+  // Angled brows, as in the reference art. Hidden while frightened, when the
+  // ghosts lose their expression entirely.
+  const browMat = new THREE.MeshPhysicalMaterial({
+    color: 0x0a0418,
+    roughness: 0.12,
+    clearcoat: 1,
+    clearcoatRoughness: 0.06,
+    metalness: 0,
+  });
+  const browGeo = new THREE.BoxGeometry(0.2, 0.055, 0.055);
+  const brows = [];
+  for (const side of [-1, 1]) {
+    const brow = new THREE.Mesh(browGeo, browMat);
+    brow.position.set(side * 0.175, 0.265, 0.315);
+    brow.rotation.z = side * 0.42;
+    brows.push(brow);
+    root.add(brow);
+  }
+
   // Frightened zigzag mouth.
   const mouthMat = new THREE.MeshBasicMaterial({
     map: zigzagTexture(),
@@ -482,6 +510,7 @@ export function createGhost(id, quality) {
         mouth.visible = !hidden;
         mouthMat.color.copy(flashing ? new THREE.Color(0x2b3cff) : flashColour);
         for (const part of eyeParts) part.pupil.visible = false;
+        for (const brow of brows) brow.visible = false;
         if (light) light.color.copy(flashing ? flashColour : frightColour);
       } else {
         bodyMat.color.copy(normalColour);
@@ -490,6 +519,7 @@ export function createGhost(id, quality) {
         auraMat.color.setHex(meta.glow);
         mouth.visible = false;
         for (const part of eyeParts) part.pupil.visible = true;
+        for (const brow of brows) brow.visible = !hidden;
         if (light) light.color.setHex(meta.colour);
       }
       if (light) light.intensity = hidden ? 0.5 : 1.5 + 0.35 * Math.sin(time * 5);
@@ -522,6 +552,25 @@ export function createPellets(maze, quality) {
   halo.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   halo.frustumCulled = false;
   halo.renderOrder = 6;
+
+  // Reflection copy. Pellets are the brightest thing in a corridor, so their
+  // reflections carry the wet-floor read; it shares the main pass's transforms
+  // via one array copy rather than recomputing 240 matrices.
+  const reflection = new THREE.InstancedMesh(
+    geo,
+    new THREE.MeshBasicMaterial({
+      color: PALETTE.pellet,
+      toneMapped: false,
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+    list.length
+  );
+  reflection.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  reflection.frustumCulled = false;
+  reflection.renderOrder = -2;
 
   const state = list.map((p) => ({ ...p, eaten: false, pop: 0 }));
   const dummy = new THREE.Object3D();
@@ -558,6 +607,10 @@ export function createPellets(maze, quality) {
     }
     mesh.instanceMatrix.needsUpdate = true;
     halo.instanceMatrix.needsUpdate = true;
+    if (reflection.visible) {
+      reflection.instanceMatrix.array.set(mesh.instanceMatrix.array);
+      reflection.instanceMatrix.needsUpdate = true;
+    }
   };
 
   const reset = () => {
@@ -567,7 +620,7 @@ export function createPellets(maze, quality) {
     }
   };
 
-  return { mesh, halo, sync, reset };
+  return { mesh, halo, reflection, sync, reset };
 }
 
 /* ------------------------------------------------------------------ energizers */

@@ -526,7 +526,8 @@ export function buildMaze(maze, quality) {
     transparent: true,
     opacity: 0.85,
   });
-  if (stripGeo) group.add(new THREE.Mesh(stripGeo, stripMat));
+  const stripMesh = stripGeo ? new THREE.Mesh(stripGeo, stripMat) : null;
+  if (stripMesh) group.add(stripMesh);
 
   // No additive shells around the tubes: scaling a swept ring on one axis
   // stretches it into tall soft ghosts that wash the whole frame from a low
@@ -545,6 +546,10 @@ export function buildMaze(maze, quality) {
   group.add(gate);
 
   // ------------------------------------------------------------- floor stack
+  // Registered with setStretch: [slab, tubes to lift, vertical strips].
+  let stretch = 1;
+  const stretchTargets = [[slabMesh, [cyanMesh, magentaMesh], stripMesh]];
+
   const glow = bakeGlowMap(glowLoops, quality.glowMapSize);
   const floorGroup = new THREE.Group();
 
@@ -711,6 +716,7 @@ export function buildMaze(maze, quality) {
       })
     );
     mirror.add(mSlab, mTube, mTube2, mBase);
+    stretchTargets.push([mSlab, [mTube, mTube2], null]);
     // Transparent draw order is renderOrder first, so the reflection is
     // guaranteed to land underneath the semi-transparent floor.
     mirror.children.forEach((c) => (c.renderOrder = -2));
@@ -724,6 +730,27 @@ export function buildMaze(maze, quality) {
     mirror,
     gate,
     componentCount: comps.length,
+    /**
+     * Raises the walls without distorting their neon.
+     *
+     * The kerbs are low so the overview camera can see over them, but from
+     * inside the maze that leaves no corridor at all. Scaling the whole group
+     * was the first attempt and it squashed the swept tubes into ellipses and
+     * smeared them across the frame; instead the slab scales, the top tubes are
+     * translated to the new top at their original cross-section, the floor line
+     * stays put, and the vertical strips scale with the wall they sit on.
+     */
+    setStretch(target, dt) {
+      const k = stretch + (target - stretch) * Math.min(1, dt * 5);
+      if (Math.abs(k - stretch) < 1e-4 && Math.abs(k - target) < 1e-4) return;
+      stretch = k;
+      const lift = (k - 1) * WALL_HEIGHT;
+      for (const [slab, tubes, strips] of stretchTargets) {
+        slab.scale.y = k;
+        for (const t of tubes) t.position.y = lift;
+        if (strips) strips.scale.y = k;
+      }
+    },
     /**
      * The floor is only part-transparent because there is a reflection world
      * beneath it. If reflections are switched off the plinth has to become
