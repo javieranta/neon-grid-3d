@@ -370,6 +370,7 @@ export function buildMaze(maze, quality) {
   const cyanTubeGeos = [];
   const magentaTubeGeos = [];
   const baseTubeGeos = [];
+  const stripGeos = [];
   const glowLoops = [];
 
   for (const cells of comps) {
@@ -416,6 +417,24 @@ export function buildMaze(maze, quality) {
       baseTubeGeos.push(
         tubeFromPolyline(poly, 0.07, TUBE_RADIUS * 0.7, Math.max(4, quality.tubeRadial - 2))
       );
+      // Vertical neon strips down the wall face, spaced along the silhouette.
+      // Barely visible from above, but once the walls stretch for first-person
+      // they become the eye-level pipes the reference art has.
+      let run = 0;
+      for (let i = 1; i < poly.length; i++) {
+        const a = poly[i - 1];
+        const b = poly[i];
+        const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+        run += segLen;
+        if (run < 1.6) continue;
+        run = 0;
+        const bar = new THREE.BoxGeometry(0.075, WALL_HEIGHT * 0.74, 0.055);
+        const yaw = Math.atan2(-(b.y - a.y), b.x - a.x);
+        bar.rotateY(-yaw);
+        bar.translate(b.x, WALL_HEIGHT * 0.42, -b.y);
+        stripGeos.push(bar);
+      }
+
       glowLoops.push({ poly, near: false });
     }
   }
@@ -431,6 +450,7 @@ export function buildMaze(maze, quality) {
   const cyanTubeGeo = merge(cyanTubeGeos);
   const magentaTubeGeo = merge(magentaTubeGeos);
   const baseTubeGeo = merge(baseTubeGeos);
+  const stripGeo = merge(stripGeos);
 
   const panel = panelTexture();
   // Glossy near-black acrylic: the reference walls are dark mirrors whose only
@@ -457,7 +477,7 @@ export function buildMaze(maze, quality) {
   // rotated at build time), so the ramp needs no extra matrix work.
   slabMat.onBeforeCompile = (shader) => {
     shader.uniforms.uRimLow = { value: new THREE.Color(0x0a0018) };
-    shader.uniforms.uRimHigh = { value: new THREE.Color(0x3a0f78) };
+    shader.uniforms.uRimHigh = { value: new THREE.Color(0x5c1cb4) };
     shader.uniforms.uWallHeight = { value: WALL_HEIGHT };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying float vWallY;\nvarying float vWallSide;')
@@ -472,7 +492,7 @@ export function buildMaze(maze, quality) {
       )
       .replace(
         '#include <emissivemap_fragment>',
-        '#include <emissivemap_fragment>\n  float rim = clamp(vWallY / uWallHeight, 0.0, 1.0);\n  totalEmissiveRadiance += mix(uRimLow, uRimHigh, rim) * pow(rim, 3.0) * vWallSide * 0.17;'
+        '#include <emissivemap_fragment>\n  float rim = clamp(vWallY / uWallHeight, 0.0, 1.0);\n  totalEmissiveRadiance += mix(uRimLow, uRimHigh, rim) * pow(rim, 3.0) * vWallSide * 0.34;'
       );
   };
 
@@ -499,6 +519,14 @@ export function buildMaze(maze, quality) {
   const magentaMesh = new THREE.Mesh(magentaTubeGeo, magentaMat);
   const baseTubeMesh = new THREE.Mesh(baseTubeGeo, baseTubeMat);
   group.add(cyanMesh, magentaMesh, baseTubeMesh);
+
+  const stripMat = new THREE.MeshBasicMaterial({
+    color: PALETTE.neonMagenta,
+    toneMapped: false,
+    transparent: true,
+    opacity: 0.85,
+  });
+  if (stripGeo) group.add(new THREE.Mesh(stripGeo, stripMat));
 
   // No additive shells around the tubes: scaling a swept ring on one axis
   // stretches it into tall soft ghosts that wash the whole frame from a low
@@ -722,6 +750,7 @@ export function buildMaze(maze, quality) {
     dispose() {
       slabGeo.dispose();
       cyanTubeGeo.dispose();
+      if (stripGeo) stripGeo.dispose();
       magentaTubeGeo.dispose();
       baseTubeGeo.dispose();
       glow.texture.dispose();

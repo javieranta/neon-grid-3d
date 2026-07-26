@@ -37,7 +37,7 @@ export const CAMERA_MODES = ['overview', 'chase', 'firstPerson', 'cinematic'];
  * corridor drama the reference art has, and first-person sits near the 75-80
  * degrees a headset presents per eye, which keeps the VR port honest.
  */
-const MODE_FOV = { overview: 62, chase: 68, firstPerson: 72, cinematic: 60 };
+const MODE_FOV = { overview: 62, chase: 68, firstPerson: 68, cinematic: 60 };
 
 /* ------------------------------------------------------------- camera framing */
 
@@ -295,31 +295,25 @@ export function createRenderer(canvas, game, tierName) {
       const dirVec = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[pac.dir] ?? [-1, 0];
       const bob = Math.sin(time * 11) * 0.022;
       // Slightly ahead of centre so the near clip never grazes his own shell.
-      desiredPos.set(px + dirVec[0] * 0.2, 0.52 + bob, pz + dirVec[1] * 0.2);
-      desiredLook.set(px + dirVec[0] * 5, 0.5 + Math.sin(time * 5.5) * 0.02, pz + dirVec[1] * 5);
+      desiredPos.set(px + dirVec[0] * 0.2, 0.62 + bob, pz + dirVec[1] * 0.2);
+      desiredLook.set(px + dirVec[0] * 5, 0.58 + Math.sin(time * 5.5) * 0.02, pz + dirVec[1] * 5);
       if (Math.abs(px - cam.lastPacX) > 8) {
         cam.pos.copy(desiredPos);
         cam.look.copy(desiredLook);
       }
     } else if (cam.mode === 'cinematic') {
-      // Sweep between a low, sunset-revealing angle and a high three-quarter
-      // view. Below roughly 22 degrees the horizon clears the top of frame and
-      // the banded sun and mountain ridges come into shot.
-      cam.orbit += dt * 0.13;
-      const sweep = 0.5 + 0.5 * Math.sin(time * 0.16);
-      const tiltDeg = 9 + sweep * 34;
-      const tilt = THREE.MathUtils.degToRad(tiltDeg);
-      const d = fitDistance(camera, tilt, 1.06 + (1 - sweep) * 0.5);
-      // Yaw is scaled by the sweep so the lowest, most cinematic tilt always
-      // looks straight down the sun's azimuth: maze in the foreground, banded
-      // disc dead centre behind the ridgeline.
-      const yaw = Math.sin(cam.orbit) * 0.5 * sweep;
-      desiredPos.set(
-        Math.sin(yaw) * d * Math.cos(tilt),
-        Math.sin(tilt) * d,
-        Math.cos(yaw) * d * Math.cos(tilt)
-      );
-      desiredLook.set(0, 1.0 + (1 - sweep) * 3.4, 0);
+      // Composed explicitly rather than solved. Looking only ~6-11 degrees below
+      // horizontal puts the horizon around 40% down the frame, which is what
+      // leaves room for the sun, the ridgelines and the palms above the board.
+      // Deriving this from the maze fit instead only ever yielded a sliver of sky.
+      cam.orbit += dt * 0.1;
+      const sweep = 0.5 + 0.5 * Math.sin(time * 0.11);
+      const height = 8.5 + sweep * 9.5;
+      const dist = 43 + sweep * 15;
+      const yaw = Math.sin(cam.orbit) * 0.3;
+      desiredPos.set(Math.sin(yaw) * dist, height, Math.cos(yaw) * dist);
+      // Aimed just beyond the far edge of the board, toward the sun's azimuth.
+      desiredLook.set(0, 2.6 + sweep * 1.6, -6);
     } else if (cam.mode === 'chase') {
       const dirVec = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[pac.dir] ?? [-1, 0];
       desiredPos.set(px - dirVec[0] * 5.2, 3.4, pz - dirVec[1] * 5.2);

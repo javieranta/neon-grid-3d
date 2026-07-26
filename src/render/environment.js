@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { PALETTE } from './palette.js';
 import { mergeGeometries } from './mazeMesh.js';
 
-const SUN_DIR = new THREE.Vector3(0.015, 0.135, -1).normalize();
+const SUN_DIR = new THREE.Vector3(0.01, 0.125, -1).normalize();
 
 /* ------------------------------------------------------------------ sky dome */
 
@@ -49,21 +49,28 @@ const skyFrag = /* glsl */ `
     // and its neon grid own that half of the frame, not the sky.
     float above = smoothstep(-0.035, 0.015, h);
 
-    // The sun: a big soft disc sliced by widening horizontal bands.
+    // The sun: a hard-edged disc sliced by horizontal bands.
     float d = distance(dir, sunDir);
-    float disc = 1.0 - smoothstep(0.098, 0.109, d);
-    float sunH = (dir.y - sunDir.y) * 42.0;      // local vertical inside the disc
-    // Bands: thin near the top of the disc, thickening toward the bottom.
-    float band = smoothstep(0.46, 0.54, fract(sunH * 0.30));
-    float bandMask = mix(1.0, band, clamp(-sunH * 0.13 + 0.92, 0.0, 1.0));
-    float core = 1.0 - smoothstep(0.0, 0.075, d);
-    vec3 sunCol = mix(cSun, cSunCore, core * 0.55);
-    // Kept just under clipping so the bands stay legible instead of fusing
-    // into one white blob once bloom and tone mapping have had their say.
-    col = mix(col, sunCol * 1.05, disc * bandMask * 0.94 * above);
+    const float SUN_R = 0.155;
+    float disc = 1.0 - smoothstep(SUN_R - 0.004, SUN_R + 0.004, d);
 
-    // Tight atmospheric bloom around the sun, clipped to the sky.
-    col += cSun * pow(1.0 - smoothstep(0.06, 0.40, d), 2.0) * 0.20 * above;
+    // Atmospheric glow goes down FIRST. Added after the disc it filled the band
+    // gaps back in and the slices vanished.
+    col += cSun * pow(1.0 - smoothstep(0.09, 0.46, d), 2.0) * 0.15 * above;
+
+    // Stripes parametrised in disc-heights, so the count is exact: nine periods
+    // from the bottom of the disc to the top.
+    float h01 = (dir.y - sunDir.y) / SUN_R;       // -1 at the base, +1 at the top
+    float v = h01 * 5.0;
+    float aa = max(fwidth(v) * 1.2, 0.02);
+    float stripe = smoothstep(0.42 - aa, 0.42 + aa, fract(v));
+    // Bands are absent at the crown and total at the base, as in the art.
+    float bandMask = mix(1.0, stripe, clamp(-h01 * 0.72 + 0.5, 0.0, 1.0));
+
+    float core = 1.0 - smoothstep(0.0, 0.09, d);
+    vec3 sunCol = mix(cSun, cSunCore, core * 0.5);
+    // Just under clipping: any brighter and bloom fuses the slices into one blob.
+    col = mix(col, sunCol * 0.92, disc * bandMask * above);
 
     // Horizon haze line.
     col += cLow * exp(-abs(h) * 34.0) * 0.3;
@@ -274,8 +281,53 @@ function buildMountainRange(seed, width, height, z, colour, rimColour, rimIntens
 /* --------------------------------------------------------------------- palms */
 
 /**
+ * One palm frond as a flat leaf ribbon: a quadratic spine arcing outward and then
+ * drooping, with the width tapering toward both ends. A ribbon silhouettes as a
+ * leaf; the tapered cylinders this replaced silhouetted as spikes.
+ */
+function buildFrondLeaf(len, droop) {
+  const steps = 9;
+  const positions = [];
+  const indices = [];
+  // Spine: out along +X, rising, then falling below the crown.
+  const p0 = new THREE.Vector2(0, 0);
+  const p1 = new THREE.Vector2(len * 0.45, len * 0.34);
+  const p2 = new THREE.Vector2(len, -len * droop);
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const omt = 1 - t;
+    const x = omt * omt * p0.x + 2 * omt * t * p1.x + t * t * p2.x;
+    const y = omt * omt * p0.y + 2 * omt * t * p1.y + t * t * p2.y;
+    // Tangent, for a perpendicular offset in the leaf plane.
+    const tx = 2 * omt * (p1.x - p0.x) + 2 * t * (p2.x - p1.x);
+    const ty = 2 * omt * (p1.y - p0.y) + 2 * t * (p2.y - p1.y);
+    const tl = Math.hypot(tx, ty) || 1;
+    const nx = -ty / tl;
+    const ny = tx / tl;
+    const w = len * 0.085 * Math.pow(Math.sin(Math.PI * Math.min(0.999, t + 0.02)), 0.55);
+    positions.push(x + nx * w, y + ny * w, 0);
+    positions.push(x - nx * w, y - ny * w, 0);
+  }
+  for (let i = 0; i < steps; i++) {
+    const a = i * 2;
+    indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const uvs = [];
+  for (let i = 0; i <= steps; i++) {
+    uvs.push(i / steps, 0, i / steps, 1);
+  }
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  return geo;
+}
+
+/**
  * Low-poly palm silhouette: a leaning trunk of stacked segments plus drooping
- * fronds. Rendered as a flat near-black shape with an additive magenta rim, so
+ * leaf fronds. Rendered as a flat near-black shape with an additive magenta rim, so
  * it reads as a backlit cut-out the way the reference art does.
  */
 function buildPalm(seed, height) {
@@ -299,15 +351,20 @@ function buildPalm(seed, height) {
     into.push(g);
   };
   const group = new THREE.Group();
-  const dark = new THREE.MeshBasicMaterial({ color: 0x08010f, toneMapped: false, fog: false });
+  const dark = new THREE.MeshBasicMaterial({
+    color: 0x08010f,
+    toneMapped: false,
+    fog: false,
+    side: THREE.DoubleSide,
+  });
   const rim = new THREE.MeshBasicMaterial({
     color: 0xff3ad0,
     toneMapped: false,
     transparent: true,
-    opacity: 0.34,
+    opacity: 0.12,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    side: THREE.BackSide,
+    side: THREE.DoubleSide,
     fog: false,
   });
 
@@ -330,32 +387,15 @@ function buildPalm(seed, height) {
   }
 
   const crown = new THREE.Vector3(lean * height * 0.5, height, 0);
-  const fronds = 9;
+  const fronds = 11;
   for (let i = 0; i < fronds; i++) {
     const a = (i / fronds) * Math.PI * 2 + rand(i + 7) * 0.5;
-    // Kept well short of the trunk height: fronds as long as the tree drooped
-    // past its own base and the silhouette read as a spider.
-    const len = height * (0.34 + rand(i + 20) * 0.14);
-    // Two straight blades hinged mid-span give the arc a palm needs: out and
-    // slightly up from the crown, then a gentle droop at the tip.
-    const outer = Math.PI * 0.5 - 0.16 + rand(i + 33) * 0.16;
-    const droop = outer + 0.5 + rand(i + 51) * 0.22;
-    let anchor = crown.clone();
-    // Broad blades: thin ones silhouette as spikes rather than fronds.
-    for (const [seg, angle, width] of [
-      [0.58, outer, 0.32],
-      [0.42, droop, 0.2],
-    ]) {
-      const segLen = len * seg;
-      const geo = new THREE.CylinderGeometry(segLen * width * 0.4, segLen * width, segLen, 4, 1, true);
-      geo.translate(0, segLen / 2, 0);
-      const rot = new THREE.Euler(angle, a, 0, 'YXZ');
-      stamp(geo, anchor.clone(), rot, new THREE.Vector3(1, 1, 0.6), bodyParts);
-      stamp(geo, anchor.clone(), rot, new THREE.Vector3(1.12, 1.0, 0.68), rimParts);
-      const dir = new THREE.Vector3(0, 1, 0).applyEuler(rot);
-      anchor = anchor.clone().add(dir.multiplyScalar(segLen));
-      geo.dispose();
-    }
+    const len = height * (0.32 + rand(i + 20) * 0.12);
+    const geo = buildFrondLeaf(len, 0.3 + rand(i + 33) * 0.22);
+    const rot = new THREE.Euler(0, a, (rand(i + 61) - 0.5) * 0.3, 'YZX');
+    stamp(geo, crown.clone(), rot, new THREE.Vector3(1, 1, 1), bodyParts);
+    stamp(geo, crown.clone(), rot, new THREE.Vector3(1.05, 1.05, 1.05), rimParts);
+    geo.dispose();
   }
 
   const body = mergeGeometries(bodyParts);
