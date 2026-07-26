@@ -403,6 +403,38 @@ export function createRenderer(canvas, game, tierName) {
   }
 
   let elapsed = 0;
+  let neonEnvFrames = 0;
+  let neonEnvTarget = null;
+
+  /**
+   * Bakes the maze's own neon into an environment map.
+   *
+   * A single cube render from the middle of the board, PMREM-filtered and used as
+   * scene.environment. Without it the only thing a glossy wall could reflect was
+   * the dim sky, so the walls read as matte black rather than the wet black of the
+   * reference art. Deferred a couple of frames so the first frame is not held up,
+   * and skipped on tiers that have reflections off anyway.
+   */
+  function bakeNeonEnvironment() {
+    // The sun is masked for the bake. It is orders of magnitude brighter than the
+    // neon, and leaving it in put a blown-out highlight back on the wall tops.
+    env.setSunVisible(false);
+    const rt = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+    const cubeCam = new THREE.CubeCamera(0.1, 260, rt);
+    cubeCam.position.set(0, 1.1, 0);
+    scene.add(cubeCam);
+    cubeCam.update(renderer, scene);
+    scene.remove(cubeCam);
+
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const baked = pmrem.fromCubemap(rt.texture);
+    pmrem.dispose();
+    rt.dispose();
+
+    scene.environment = baked.texture;
+    neonEnvTarget = baked;
+    env.setSunVisible(true);
+  }
 
   function render(dt) {
     elapsed += dt;
@@ -411,6 +443,16 @@ export function createRenderer(canvas, game, tierName) {
     // autoReset lets info accumulate so the stats reflect the whole frame.
     renderer.info.autoReset = false;
     renderer.info.reset();
+
+    // Two frames in: the world is assembled and the first image is already up.
+    if (quality.reflections && neonEnvFrames >= 0 && ++neonEnvFrames === 3) {
+      try {
+        bakeNeonEnvironment();
+      } catch (err) {
+        console.warn('[neon-grid] neon environment bake failed', err);
+      }
+      neonEnvFrames = -1;
+    }
 
     env.update(time);
     mazeMesh.update(time, game.frightTimer > 0);
@@ -551,6 +593,7 @@ export function createRenderer(canvas, game, tierName) {
     dispose() {
       window.removeEventListener('resize', resize);
       post.dispose();
+      if (neonEnvTarget) neonEnvTarget.dispose();
       signs.dispose();
       mazeMesh.dispose();
       env.dispose();

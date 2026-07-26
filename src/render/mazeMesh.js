@@ -276,7 +276,7 @@ function panelTexture() {
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, size, size);
 
-  ctx.strokeStyle = 'rgba(150, 90, 255, 0.34)';
+  ctx.strokeStyle = 'rgba(150, 90, 255, 0.5)';
   ctx.lineWidth = 1;
   for (let y = 4; y < size; y += 8) {
     ctx.beginPath();
@@ -284,8 +284,9 @@ function panelTexture() {
     ctx.lineTo(size, y + 0.5);
     ctx.stroke();
   }
-  ctx.strokeStyle = 'rgba(210, 140, 255, 0.7)';
-  for (let y = 0; y < size; y += 64) {
+  ctx.strokeStyle = 'rgba(215, 150, 255, 0.95)';
+  ctx.lineWidth = 2;
+  for (let y = 0; y < size; y += 32) {
     ctx.beginPath();
     ctx.moveTo(0, y + 0.5);
     ctx.lineTo(size, y + 0.5);
@@ -303,7 +304,9 @@ function panelTexture() {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(0.5, 0.5);
+  // A tighter vertical repeat: the side faces are short, and at 0.5 they only
+  // showed a fraction of one tile, so the panel seams never read.
+  tex.repeat.set(0.5, 3);
   tex.anisotropy = 4;
   return tex;
 }
@@ -428,7 +431,7 @@ export function buildMaze(maze, quality) {
         run += segLen;
         if (run < 1.6) continue;
         run = 0;
-        const bar = new THREE.BoxGeometry(0.075, WALL_HEIGHT * 0.74, 0.055);
+        const bar = new THREE.BoxGeometry(0.095, WALL_HEIGHT * 0.8, 0.07);
         const yaw = Math.atan2(-(b.y - a.y), b.x - a.x);
         bar.rotateY(-yaw);
         bar.translate(b.x, WALL_HEIGHT * 0.42, -b.y);
@@ -458,13 +461,14 @@ export function buildMaze(maze, quality) {
   // in the environment map spreads into a sheen instead of a hot spot.
   const slabMat = new THREE.MeshPhysicalMaterial({
     color: PALETTE.wallBody,
-    metalness: 0.5,
-    roughness: 0.3,
+    metalness: 0.62,
+    roughness: 0.22,
     clearcoat: 1,
-    clearcoatRoughness: 0.3,
-    // Kept low on purpose: the sun in the environment map is very bright, and at
-    // a higher weight it collapses into a blown-out highlight on the flat tops.
-    envMapIntensity: 0.14,
+    clearcoatRoughness: 0.32,
+    // Weighted up now that the environment map is the maze's own neon rather than
+    // the sky: the light is spread all around the cube instead of concentrated in
+    // a sun, so there is no single lobe to blow out.
+    envMapIntensity: 0.7,
     emissiveMap: panel,
     emissive: new THREE.Color(0x6a4bff),
     emissiveIntensity: 0.07,
@@ -521,10 +525,8 @@ export function buildMaze(maze, quality) {
   group.add(cyanMesh, magentaMesh, baseTubeMesh);
 
   const stripMat = new THREE.MeshBasicMaterial({
-    color: PALETTE.neonMagenta,
+    color: 0xff5ce6,
     toneMapped: false,
-    transparent: true,
-    opacity: 0.85,
   });
   const stripMesh = stripGeo ? new THREE.Mesh(stripGeo, stripMat) : null;
   if (stripMesh) group.add(stripMesh);
@@ -534,12 +536,15 @@ export function buildMaze(maze, quality) {
   // camera. Bloom supplies the halo, and it respects the geometry.
 
   // ------------------------------------------------------------- ghost gate
-  const gateGeo = new THREE.BoxGeometry(1.9, 0.1, 0.16);
+  // The gate is a thin door line, not a beacon. At near-white with tone mapping
+  // off it was the single brightest surface in the scene and bloom turned it into
+  // a hot spot in the middle of the board.
+  const gateGeo = new THREE.BoxGeometry(1.9, 0.055, 0.12);
   const gateMat = new THREE.MeshBasicMaterial({
     color: PALETTE.gateColour,
     toneMapped: false,
     transparent: true,
-    opacity: 0.95,
+    opacity: 0.5,
   });
   const gate = new THREE.Mesh(gateGeo, gateMat);
   gate.position.set(0, WALL_HEIGHT * 0.52, 12 - 15);
@@ -629,11 +634,11 @@ export function buildMaze(maze, quality) {
     new THREE.BoxGeometry(plinthW, PLINTH_H, plinthD),
     new THREE.MeshPhysicalMaterial({
       color: 0x04030a,
-      metalness: 0.6,
-      roughness: 0.22,
+      metalness: 0.7,
+      roughness: 0.16,
       clearcoat: 1,
-      clearcoatRoughness: 0.14,
-      envMapIntensity: 0.35,
+      clearcoatRoughness: 0.1,
+      envMapIntensity: 0.9,
     })
   );
   plinth.position.y = -PLINTH_H / 2 - 0.02;
@@ -764,7 +769,7 @@ export function buildMaze(maze, quality) {
       // Subtle breathing on the floor-level line only; touching the main tube
       // colours would wash their hues out once bloom lifts the cores.
       baseTubeMat.opacity = 0.72 + 0.14 * Math.sin(time * 2.1);
-      gateMat.opacity = 0.55 + 0.35 * Math.sin(time * 3.4);
+      gateMat.opacity = 0.3 + 0.16 * Math.sin(time * 3.4);
       if (frightened) {
         // Cool the whole maze down while an energizer is active.
         slabMat.emissive.setHex(0x4b6dff);

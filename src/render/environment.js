@@ -30,6 +30,10 @@ const skyFrag = /* glsl */ `
   uniform vec3 cHorizon, cLow, cMid, cHigh, cZenith, cSun, cSunCore;
   uniform vec3 sunDir;
   uniform float time;
+  // Zeroed while the neon environment cubemap is baked: the sun is by far the
+  // brightest thing in the sky and it reflects off the glossy wall tops as a
+  // blown-out hot spot. Masking it keeps reflections purely neon.
+  uniform float sunMul;
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -56,7 +60,7 @@ const skyFrag = /* glsl */ `
 
     // Atmospheric glow goes down FIRST. Added after the disc it filled the band
     // gaps back in and the slices vanished.
-    col += cSun * pow(1.0 - smoothstep(0.09, 0.46, d), 2.0) * 0.15 * above;
+    col += cSun * pow(1.0 - smoothstep(0.09, 0.46, d), 2.0) * 0.15 * above * sunMul;
 
     // Stripes parametrised in disc-heights, so the count is exact: nine periods
     // from the bottom of the disc to the top.
@@ -70,7 +74,7 @@ const skyFrag = /* glsl */ `
     float core = 1.0 - smoothstep(0.0, 0.09, d);
     vec3 sunCol = mix(cSun, cSunCore, core * 0.5);
     // Just under clipping: any brighter and bloom fuses the slices into one blob.
-    col = mix(col, sunCol * 0.92, disc * bandMask * above);
+    col = mix(col, sunCol * 0.92, disc * bandMask * above * sunMul);
 
     // Horizon haze line.
     col += cLow * exp(-abs(h) * 34.0) * 0.3;
@@ -109,6 +113,7 @@ function buildSky() {
       cSunCore: { value: new THREE.Color(PALETTE.sunCore) },
       sunDir: { value: SUN_DIR.clone() },
       time: { value: 0 },
+      sunMul: { value: 1 },
     },
   });
   const mesh = new THREE.Mesh(geo, mat);
@@ -664,7 +669,10 @@ export function createEnvironment(scene, renderer, quality, camera) {
   // Lighting rig: warm sun for rim light, cool hemisphere for fill.
   // A dim sun only: at full strength its specular lobe collapsed into a hot
   // spot on the glossy wall tops. The maze is lit by its own neon.
-  const sun = new THREE.DirectionalLight(0xff9ad8, 0.34);
+  // Kept only for the shadow map. Its specular lobe on the glossy wall tops was
+  // the hot spot that kept appearing mid-board; the neon environment map now does
+  // all the reflecting, so this contributes almost nothing but that artefact.
+  const sun = new THREE.DirectionalLight(0xff9ad8, 0.08);
   sun.position.copy(SUN_DIR).multiplyScalar(60);
   sun.position.y = Math.abs(sun.position.y) + 34;
   sun.castShadow = quality.shadows;
@@ -684,13 +692,11 @@ export function createEnvironment(scene, renderer, quality, camera) {
   scene.add(sun);
   scene.add(sun.target);
 
-  const hemi = new THREE.HemisphereLight(0x8a3cff, 0x120026, 0.42);
+  const hemi = new THREE.HemisphereLight(0x8a3cff, 0x120026, 0.55);
   scene.add(hemi);
 
-  // A cool key light from above keeps the neon readable against the floor.
-  const key = new THREE.DirectionalLight(0x7fe9ff, 0.12);
-  key.position.set(-12, 30, 14);
-  scene.add(key);
+  // No second directional light: with the neon cubemap in place it only added
+  // another sharp specular lobe to catch on the wall tops.
 
   const fill = new THREE.PointLight(0xff3ad0, 0.45, 90, 1.6);
   fill.position.set(0, 16, 24);
@@ -704,6 +710,10 @@ export function createEnvironment(scene, renderer, quality, camera) {
     },
     setShafts(on) {
       if (shafts) shafts.visible = on;
+    },
+    /** Masks the sun disc and its glow, for the environment bake. */
+    setSunVisible(on) {
+      sky.material.uniforms.sunMul.value = on ? 1 : 0;
     },
     update(time) {
       // Keeping the dome centred on the camera makes vDir an exact view ray,

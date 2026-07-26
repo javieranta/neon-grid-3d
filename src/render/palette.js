@@ -29,7 +29,7 @@ export const PALETTE = {
   neonNear: 0xff2bd6,
   neonFar: 0x28d9ff,
   neonAccent: 0x9b5cff,
-  gateColour: 0xffc4f0,
+  gateColour: 0xff86d6,
 
   // Floor.
   floor: 0x05010f,
