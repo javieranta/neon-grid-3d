@@ -494,13 +494,18 @@ export function createRenderer(canvas, game, tierName) {
     const fpv = cam.mode === 'firstPerson';
     // Kerb height only suits the overview. Any close camera looks straight over
     // the maze unless the walls come up, so chase gets the stretch too.
-    const stretchFor = { firstPerson: 3.1, chase: 1.75 };
+    const stretchFor = { firstPerson: 3.1, chase: 2.1 };
     mazeMesh.setStretch(stretchFor[cam.mode] ?? 1, dt);
 
     // The shell goes, the lamp stays: in first person Pac-Man's own point light
     // is what lights the corridor walls around the player.
     pacman.setBodyVisible(!fpv);
-    pacman.setCloseUp(cam.mode === 'chase' || fpv);
+    const closeUp = cam.mode === 'chase' || fpv;
+    pacman.setCloseUp(closeUp);
+    for (const id of GHOST_ORDER) {
+      ghostModels[id].setCloseUp(closeUp);
+      if (reflGhosts[id]) reflGhosts[id].setCloseUp(closeUp);
+    }
     pacman.pool.visible = !fpv;
     if (reflPacman) reflPacman.root.visible = !fpv;
     pellets.reflection.visible = reflectionRig.visible;

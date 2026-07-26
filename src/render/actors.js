@@ -266,8 +266,12 @@ export function createPacman(quality) {
 
 const GHOST_R = 0.46;
 const GHOST_Y = 0.44;
-const SKIRT_SEGMENTS = 40;
+const SKIRT_SEGMENTS = 64;
 const SKIRT_LOBES = 5;
+const SKIRT_AMPLITUDE = 0.17;
+
+/** Unit triangle wave. Sharp peaks and valleys, unlike a sine's soft scallops. */
+const triangleWave = (x) => 2 * Math.abs(x - Math.floor(x + 0.5));
 
 function buildSkirt(radius, height) {
   const positions = [];
@@ -296,8 +300,9 @@ function buildSkirt(radius, height) {
   }
 
   // Flat cap so the ghost is not see-through from below (it shows in the mirror).
+  // Sits at the hem's mean depth so it stays hidden behind the points.
   const capStart = positions.length / 3;
-  positions.push(0, -height * 0.6, 0);
+  positions.push(0, -height + SKIRT_AMPLITUDE * 0.5, 0);
   normals.push(0, -1, 0);
   uvs.push(0.5, 0.5);
   for (let i = 0; i < SKIRT_SEGMENTS; i++) {
@@ -363,9 +368,12 @@ export function createGhost(id, quality) {
   // ghost brighter; an edge-weighted term makes it read as a glowing object,
   // which is how the reference art separates them from the dark.
   let rimUniform = null;
+  let rimStrengthUniform = null;
   bodyMat.onBeforeCompile = (shader) => {
     shader.uniforms.uGhostRim = { value: new THREE.Color(meta.glow) };
+    shader.uniforms.uGhostRimStrength = { value: 1.6 };
     rimUniform = shader.uniforms.uGhostRim;
+    rimStrengthUniform = shader.uniforms.uGhostRimStrength;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -378,11 +386,11 @@ export function createGhost(id, quality) {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nvarying vec3 vRimNormal;\nvarying vec3 vRimView;\nuniform vec3 uGhostRim;'
+        '#include <common>\nvarying vec3 vRimNormal;\nvarying vec3 vRimView;\nuniform vec3 uGhostRim;\nuniform float uGhostRimStrength;'
       )
       .replace(
         '#include <emissivemap_fragment>',
-        '#include <emissivemap_fragment>\n  float ghostRim = 1.0 - abs(dot(normalize(vRimNormal), normalize(vRimView)));\n  totalEmissiveRadiance += uGhostRim * pow(ghostRim, 2.4) * 1.6;'
+        '#include <emissivemap_fragment>\n  float ghostRim = 1.0 - abs(dot(normalize(vRimNormal), normalize(vRimView)));\n  totalEmissiveRadiance += uGhostRim * pow(ghostRim, 2.4) * uGhostRimStrength;'
       );
   };
 
@@ -434,15 +442,15 @@ export function createGhost(id, quality) {
     emissiveIntensity: 0.45,
     roughness: 0.2,
   });
-  const eyeGeo = new THREE.SphereGeometry(0.155, 20, 16);
-  const pupilGeo = new THREE.SphereGeometry(0.082, 16, 14);
+  const eyeGeo = new THREE.SphereGeometry(0.175, 24, 18);
+  const pupilGeo = new THREE.SphereGeometry(0.094, 18, 16);
   const eyeParts = [];
   for (const side of [-1, 1]) {
     const white = new THREE.Mesh(eyeGeo, whiteMat);
-    white.position.set(side * 0.168, 0.125, 0.275);
+    white.position.set(side * 0.175, 0.135, 0.3);
     white.scale.set(1, 1.18, 0.8);
     const pupil = new THREE.Mesh(pupilGeo, pupilMat);
-    pupil.position.set(side * 0.168, 0.125, 0.395);
+    pupil.position.set(side * 0.175, 0.135, 0.425);
     eyes.add(white, pupil);
     eyeParts.push({ white, pupil, side });
   }
@@ -457,12 +465,12 @@ export function createGhost(id, quality) {
     clearcoatRoughness: 0.06,
     metalness: 0,
   });
-  const browGeo = new THREE.BoxGeometry(0.2, 0.055, 0.055);
+  const browGeo = new THREE.BoxGeometry(0.23, 0.06, 0.06);
   const brows = [];
   for (const side of [-1, 1]) {
     const brow = new THREE.Mesh(browGeo, browMat);
-    brow.position.set(side * 0.175, 0.265, 0.315);
-    brow.rotation.z = side * 0.42;
+    brow.position.set(side * 0.182, 0.29, 0.335);
+    brow.rotation.z = side * 0.5;
     brows.push(brow);
     root.add(brow);
   }
@@ -502,11 +510,32 @@ export function createGhost(id, quality) {
   const flashColour = new THREE.Color(PALETTE.frightenedFlash);
   const normalColour = new THREE.Color(meta.colour);
 
+  let auraBase = 0.3;
+  let haloBase = 0.3;
+  // Emissive and lamp scaling for close cameras. At a distance a strong emissive
+  // is what makes a ghost readable; from two tiles away it turns the model into a
+  // lantern, where the reference art has solid glossy plastic with specular
+  // highlights. Close up the environment and the rim do the work instead.
+  let emissiveScale = 1;
+  let lampScale = 1;
+
   return {
     root,
     pool,
     setLights(on) {
       if (light) light.visible = on;
+    },
+    /**
+     * The aura and the Fresnel rim are sized for a camera across the board. From
+     * two tiles away they swamp the frame, so both ease off - the same problem
+     * Pac-Man's lamp had once the default camera moved in close.
+     */
+    setCloseUp(close) {
+      auraBase = close ? 0.11 : 0.3;
+      haloBase = close ? 0.12 : 0.3;
+      emissiveScale = close ? 0.3 : 1;
+      lampScale = close ? 0.3 : 1;
+      if (rimStrengthUniform) rimStrengthUniform.value = close ? 0.7 : 1.6;
     },
     update(g, time, flashing) {
       const wx = worldX(g.x);
@@ -519,32 +548,34 @@ export function createGhost(id, quality) {
       halo.visible = !hidden;
       pool.visible = !hidden;
 
-      // Animated skirt hem.
-      const phase = time * 7 + (g.x + g.y) * 0.6;
+      // Animated skirt hem: a triangle wave gives the sharp points the reference
+      // art and the arcade sprite both have, where a sine gives soft scallops.
+      const phase = time * 1.1 + (g.x + g.y) * 0.1;
       for (let i = 0; i < bottomCount; i++) {
-        const a = (i / SKIRT_SEGMENTS) * Math.PI * 2;
-        const wave = Math.abs(Math.sin(a * SKIRT_LOBES * 0.5 + phase)) * 0.11;
-        skirtPos.setY(bottomStart + i, -baseHeight + wave);
+        const u = (i / SKIRT_SEGMENTS) * SKIRT_LOBES + phase;
+        skirtPos.setY(bottomStart + i, -baseHeight + SKIRT_AMPLITUDE * triangleWave(u));
       }
       skirtPos.needsUpdate = true;
 
       // Eyes track the direction of travel, in the projected top-down sense.
       const d = DIRECTIONS[g.eyeDir ?? g.dir] ?? DIRECTIONS.left;
       for (const part of eyeParts) {
-        part.pupil.position.x = part.side * 0.168 + d.x * 0.055;
-        part.pupil.position.y = 0.125 - d.y * 0.055;
-        part.pupil.position.z = 0.395 - Math.abs(d.y) * 0.02;
+        part.pupil.position.x = part.side * 0.175 + d.x * 0.06;
+        part.pupil.position.y = 0.135 - d.y * 0.06;
+        part.pupil.position.z = 0.425 - Math.abs(d.y) * 0.02;
       }
 
       const bob = Math.sin(time * 5.5 + phase * 0.1) * 0.02;
       root.position.y = GHOST_Y + bob;
+      auraMat.opacity = auraBase;
+      halo.material.opacity = haloBase;
 
       if (g.frightened) {
         // `flashing` comes from the simulation's fixed flash window, so the
         // number of blinks matches the arcade at every level.
         bodyMat.color.copy(flashing ? flashColour : frightColour);
         bodyMat.emissive.copy(flashing ? flashColour : frightColour);
-        bodyMat.emissiveIntensity = flashing ? 1.1 : 0.85;
+        bodyMat.emissiveIntensity = (flashing ? 1.1 : 0.85) * emissiveScale;
         auraMat.color.copy(flashing ? flashColour : frightColour);
         if (rimUniform) rimUniform.value.copy(flashing ? flashColour : frightColour);
         mouth.visible = !hidden;
@@ -555,7 +586,8 @@ export function createGhost(id, quality) {
       } else {
         bodyMat.color.copy(normalColour);
         bodyMat.emissive.copy(normalColour);
-        bodyMat.emissiveIntensity = 0.7 + 0.12 * Math.sin(time * 4 + phase * 0.2);
+        bodyMat.emissiveIntensity =
+          (0.7 + 0.12 * Math.sin(time * 4 + phase * 0.2)) * emissiveScale;
         auraMat.color.setHex(meta.glow);
         if (rimUniform) rimUniform.value.setHex(meta.glow);
         mouth.visible = false;
@@ -563,7 +595,10 @@ export function createGhost(id, quality) {
         for (const brow of brows) brow.visible = !hidden;
         if (light) light.color.setHex(meta.colour);
       }
-      if (light) light.intensity = hidden ? 0.5 : 1.5 + 0.35 * Math.sin(time * 5);
+      if (light) {
+        light.intensity = (hidden ? 0.5 : 1.5 + 0.35 * Math.sin(time * 5)) * lampScale;
+        light.distance = lampScale < 1 ? 3.0 : 5.2;
+      }
     },
   };
 }

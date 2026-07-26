@@ -377,7 +377,20 @@ async function run() {
     const final = await shot(page, 'desktop-06-soak');
     ok(final.analysis.brightness > 0.01, 'still rendering after soak');
 
-    const realErrors = errors.filter((e) => !/WebGL|SwiftShader|Software|deprecated|GroupMarker/i.test(e));
+    // Shader compile failures are reported by three through messages that contain
+    // "WebGL", so they must be pulled out BEFORE any noise filtering - an earlier
+    // filter swallowed a genuine "undeclared identifier" and the suite stayed green
+    // while a ghost material silently failed to compile.
+    const shaderErrors = errors.filter((e) =>
+      /shader error|not compiled|undeclared identifier|INVALID_OPERATION|Program Info Log/i.test(e)
+    );
+    ok(shaderErrors.length === 0, 'no shader compile errors', shaderErrors.slice(0, 2).join(' | '));
+
+    const realErrors = errors.filter(
+      (e) =>
+        !/SwiftShader|Software rasterizer|deprecated|GroupMarker|Automatic fallback/i.test(e) &&
+        !shaderErrors.includes(e)
+    );
     ok(realErrors.length === 0, 'no JavaScript errors', realErrors.slice(0, 4).join(' | '));
     if (warnings.length) console.log(`  · ${warnings.length} console warnings (informational)`);
 
@@ -484,7 +497,15 @@ async function run() {
     console.log(`  · mobile ${mobStats.tier} tier · ${mobStats.triangles.toLocaleString()} tris · ${mobStats.fps} fps`);
     await shot(page, 'mobile-02-later');
 
-    const realErrors = errors.filter((e) => !/WebGL|SwiftShader|Software|deprecated/i.test(e));
+    const shaderErrors = errors.filter((e) =>
+      /shader error|not compiled|undeclared identifier|INVALID_OPERATION|Program Info Log/i.test(e)
+    );
+    ok(shaderErrors.length === 0, 'no shader compile errors on mobile', shaderErrors.slice(0, 2).join(' | '));
+    const realErrors = errors.filter(
+      (e) =>
+        !/SwiftShader|Software rasterizer|deprecated|GroupMarker|Automatic fallback/i.test(e) &&
+        !shaderErrors.includes(e)
+    );
     ok(realErrors.length === 0, 'no JavaScript errors on mobile', realErrors.slice(0, 4).join(' | '));
 
     await ctx.close();
