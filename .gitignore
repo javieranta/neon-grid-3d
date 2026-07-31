@@ -2,3 +2,4 @@ node_modules/
 .vite/
 tests/artifacts/
 *.log
+.claude-flow/
