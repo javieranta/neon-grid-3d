@@ -4,7 +4,10 @@ A from-scratch 3D take on the 1980 arcade maze-chase, built with Three.js and re
 a neon monolith sitting on an infinite magenta grid under a banded sunset. Runs in any
 modern browser, desktop or phone, with no install and no build step for the player.
 
-**▶ Play: https://javieranta.github.io/neon-grid-3d/**
+**▶ Play: https://neon-grid-3d.vercel.app/** — or on GitHub Pages: https://javieranta.github.io/neon-grid-3d/
+
+Both serve the same build. `vite.config.js` sets `base: './'`, so the output works from a
+Pages sub-path and from a domain root without a rebuild.
 
 ![Gameplay](media/overview.png)
 
@@ -131,6 +134,9 @@ npm run build          # static build into docs/ (what GitHub Pages serves)
 npm test               # 1283 assertions: simulation, geometry, and turning
 npm run test:e2e       # 60 browser assertions, desktop + iPhone viewports
 npm run gallery        # renders the still gallery under media/
+
+node tests/live-check.mjs                                     # smoke-test the Pages deployment
+node tests/live-check.mjs https://neon-grid-3d.vercel.app/    # ...or any other origin
 ```
 
 The test suites are the interesting part:
